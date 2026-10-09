@@ -109,12 +109,45 @@ void Renderer::draw(const Scene& scene, bool picking, const RECT& desktop) {
         right = desktop.right;
         bottom = desktop.bottom;
     } else {
+        // 移动/快速动画时窗口包围盒几乎每帧都会变化，如果照抠图范围
+        // 逐帧重建缓冲区/窗口，会频繁触发一次性的黑屏/旧画面闪烁。
+        // 这里给窗口留一块比实际内容大得多的"舞台"，只要角色还在
+        // 舞台范围内就完全不挪动/不重建窗口，大幅减少闪烁触发频率。
         constexpr double tile = 32;
+        constexpr double margin = 5;
+        constexpr double pad = 96;
 
-        left = static_cast<int>(std::floor((box.l - 5) / tile) * tile);
-        top = static_cast<int>(std::floor((box.t - 5) / tile) * tile);
-        right = static_cast<int>(std::ceil((box.r + 5) / tile) * tile);
-        bottom = static_cast<int>(std::ceil((box.b + 5) / tile) * tile);
+        double needLeft = box.l - margin;
+        double needTop = box.t - margin;
+        double needRight = box.r + margin;
+        double needBottom = box.b + margin;
+
+        bool fits =
+            stageValid &&
+            needLeft >= stageLeft &&
+            needTop >= stageTop &&
+            needRight <= stageLeft + stageWidth &&
+            needBottom <= stageTop + stageHeight &&
+            stageWidth <= (needRight - needLeft) + 3 * pad &&
+            stageHeight <= (needBottom - needTop) + 3 * pad;
+
+        if (!fits) {
+            double l = std::floor((needLeft - pad) / tile) * tile;
+            double t = std::floor((needTop - pad) / tile) * tile;
+            double r = std::ceil((needRight + pad) / tile) * tile;
+            double b = std::ceil((needBottom + pad) / tile) * tile;
+
+            stageLeft = l;
+            stageTop = t;
+            stageWidth = r - l;
+            stageHeight = b - t;
+            stageValid = true;
+        }
+
+        left = static_cast<int>(stageLeft);
+        top = static_cast<int>(stageTop);
+        right = static_cast<int>(stageLeft + stageWidth);
+        bottom = static_cast<int>(stageTop + stageHeight);
     }
 
     resize(std::max(32, right - left), std::max(32, bottom - top));

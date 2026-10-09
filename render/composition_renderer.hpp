@@ -47,6 +47,10 @@ private:
     int windowLeft = INT_MIN, windowTop = INT_MIN;
     int windowWidth = -1, windowHeight = -1;
 
+    bool stageValid = false;
+    double stageLeft = 0, stageTop = 0;
+    double stageWidth = 0, stageHeight = 0;
+
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> immediate;
 
