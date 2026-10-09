@@ -260,7 +260,11 @@ void Spider::draw(Scene& scene, const World& w) const {
             if ((i & 1) != layer) continue;
 
             V root = hip(i, w);
-            double bend = i < 4 ? 1 : -1;
+
+            // 膝盖永远弹向 normal（朝外），不按腿编号写死方向——
+            // 否则某些朝向下固定的弯曲符号会让膝盖弹到支撑面内侧去。
+            V axis = unit(legs[i].foot - root);
+            double bend = dot(perp(axis), normal) >= 0 ? 1.0 : -1.0;
 
             TwoBone pose = ik2(
                 root, legs[i].foot, 61 * s, 72 * s, bend);
