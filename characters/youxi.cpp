@@ -55,12 +55,29 @@ bool Youxi::down(V p, World& w) {
         }
     }
 
+    for (int i = 0; i < 3; ++i) {
+        if (dist(p, nodes[i]) < 14 * s) {
+            nodeVelocity[i] += unit(p - nodes[i], {0, -1}) * (-180 * s);
+            w.audio.play(1, 500 + i * 90, 0.06);
+            return true;
+        }
+    }
+
     if (dist(p, longThread.p.back()) < 20 * s) {
         drag = Drag::Thread;
         offset = longThread.p.back() - p;
         resting = false;
         returning = false;
         w.audio.play(1, 380, 0.07);
+        return true;
+    }
+
+    if (dist(p, shortThread.p.back()) < 16 * s) {
+        drag = Drag::ShortThread;
+        offset = shortThread.p.back() - p;
+        resting = false;
+        returning = false;
+        w.audio.play(1, 460, 0.07);
         return true;
     }
 
@@ -74,14 +91,14 @@ bool Youxi::down(V p, World& w) {
 
     if (weave > 0.05 && dist(p, nest) < 75 * s) {
         if (dist(p, nest) < 19 * s) {
-            drag = Drag::Nest;
-            offset = nest - p;
+            // 轻点和拖拽分开判定，真正提升为拖拽前先记下按下的位置/时间。
+            pendingNestGrab = true;
+            nestDownPoint = p;
+            nestDownAge = age;
         } else {
-            nestWave = 1;
-            resting = false;
-            target = nest + V{0, -35 * s};
-            returning = true;
-            w.audio.play(1, 420 + std::abs(p.x - nest.x) * 3, 0.12);
+            // 拨动巢丝：只是轻轻晃一下，不会让游隙自己飞回巢。
+            nestWave = std::max(nestWave, 0.5);
+            w.audio.play(1, 420 + std::abs(p.x - nest.x) * 3, 0.08);
         }
 
         return true;
@@ -91,6 +108,18 @@ bool Youxi::down(V p, World& w) {
 }
 
 void Youxi::up(World& w) {
+    if (pendingNestGrab) {
+        // 一直没被提升为真拖拽：这是轻点巢中心，触发自主归巢邀请。
+        pendingNestGrab = false;
+
+        nestWave = 1;
+        resting = false;
+        target = nest + V{0, -35 * w.scale};
+        returning = true;
+
+        w.audio.play(1, 420, 0.12);
+    }
+
     if (drag == Drag::Body) {
         releaseBloom = 1;
         velocity = limit(velocity, 650 * w.scale);
@@ -106,6 +135,14 @@ void Youxi::up(World& w) {
         targetClock = 2;
 
         w.audio.play(1, 720, 0.09);
+    }
+
+    if (drag == Drag::ShortThread) {
+        releaseBloom = 0.6;
+        target = center + velocity * 0.3;
+        targetClock = 1.2;
+
+        w.audio.play(1, 820, 0.07);
     }
 
     if (drag == Drag::Nest) {
@@ -160,6 +197,18 @@ void Youxi::tick(World& w, double dt) {
     updateDisturbance(w, dt);
     updateEchoes(w, dt);
 
+    if (pendingNestGrab) {
+        bool promote =
+            dist(w.mouse, nestDownPoint) > 14 * s ||
+            (age - nestDownAge) > 0.18;
+
+        if (promote) {
+            pendingNestGrab = false;
+            drag = Drag::Nest;
+            offset = nest - w.mouse;
+        }
+    }
+
     if (drag == Drag::Nest) {
         nest = mix(nest, w.mouse + offset, follow(22, dt));
         nestWave = 0.65;
@@ -197,10 +246,59 @@ void Youxi::tick(World& w, double dt) {
             if (outwardVelocity > 0)
                 velocity -= radial * outwardVelocity;
         }
+    } else if (drag == Drag::ShortThread) {
+        V pin = w.mouse + offset;
+
+        V orbit = pin + V{
+            std::sin(age * 2.1) * 48 * s,
+            -48 * s + std::cos(age * 1.8) * 16 * s
+        };
+
+        spring(center, velocity, orbit, 40, 14, dt);
+
+        V separation = center - pin;
+        double maximum = 70 * s;
+
+        if (len(separation) > maximum) {
+            center = pin + unit(separation) * maximum;
+
+            V radial = unit(separation);
+            double outwardVelocity = dot(velocity, radial);
+
+            if (outwardVelocity > 0)
+                velocity -= radial * outwardVelocity;
+        }
     } else {
-        if (targetClock <= 0 && !returning && !resting) {
+        if (fishing) {
+            fishingTimer -= dt;
+            target = fishingAnchor + V{0, std::sin(age * 2.2) * 10 * s};
+
+            fishClock -= dt;
+
+            if (fishClock <= 0) {
+                fishClock = 1.4;
+
+                if (echoes.size() < 3) {
+                    echoes.push_back({
+                        fishingAnchor, V{0, -10 * s}, 14, 1.0
+                    });
+                }
+            }
+
+            if (fishingTimer <= 0) fishing = false;
+        } else if (targetClock <= 0 && !returning && !resting) {
             chooseTarget(w);
             targetClock = 4.5 + std::sin(age * 0.4) * 1.2;
+        }
+
+        if (resting) {
+            nestPluckClock -= dt;
+
+            if (nestPluckClock <= 0) {
+                nestPluckClock = 8 + std::sin(age * 0.37) * 4;
+                nestWave = std::max(nestWave, 0.4);
+                w.audio.play(1, 400, 0.05);
+            }
         }
 
         if (returning) {
@@ -554,6 +652,11 @@ void Youxi::draw(Scene& scene, const World& w) const {
         (drag == Drag::Thread ? 5.5 : 3.6) * s,
         color(0xE8D29B));
 
+    scene.disk(
+        shortThread.p.back(),
+        (drag == Drag::ShortThread ? 4.6 : 3.0) * s,
+        color(0xCDE0B8));
+
     if (throughPulse > 0.02) {
         scene.ring(
             center,
@@ -593,6 +696,12 @@ void Youxi::chooseTarget(World& w) {
                 std::sin(age * 0.7) * 230 * s,
                 std::cos(age * 0.5) * 100 * s
             };
+        } else if (std::sin(age * 0.13) > 0.6) {
+            // 边缘垂钓：偶尔不只是路过，在这个边缘附近停下来待一阵。
+            fishing = true;
+            fishingAnchor = target;
+            fishingTimer = 5 + std::sin(age * 0.5) * 2;
+            fishClock = 0;
         }
     } else {
         target = w.desktop.home;
@@ -603,6 +712,7 @@ void Youxi::chooseTarget(World& w) {
     if (dist(w.mouse, center) < 220 * s &&
         len(mouseVelocity) > 1)
     {
+        fishing = false;
         target = w.mouse + unit(mouseVelocity) * (75 * s);
     }
 }

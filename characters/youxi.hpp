@@ -31,6 +31,7 @@ private:
         None,
         Body,
         Thread,
+        ShortThread,
         Nest
     };
 
@@ -80,6 +81,15 @@ private:
 
     double echoClock = 7;
     double trailClock = 0;
+
+    V nestDownPoint{};
+    double nestDownAge = -1;
+    bool pendingNestGrab = false;
+    double nestPluckClock = 9;
+
+    bool fishing = false;
+    V fishingAnchor{};
+    double fishingTimer = 0, fishClock = 0;
 
     static double membraneAngle(int index);
 
