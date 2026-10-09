@@ -284,6 +284,35 @@ void Spider::draw(Scene& scene, const World& w) const {
         }
     }
 
+    auto drawTool = [&](int i) {
+        V root = local({17 + i * 11.0, 12}, w);
+
+        TwoBone tool = ik2(
+            root, tools[i], 29 * s, 34 * s, i == 0 ? 1 : -1);
+
+        scene.line(root, tool.joint, color(0xC9C5A5), 3 * s);
+        scene.line(tool.joint, tool.end, color(0xCFD6CE), 2 * s);
+
+        int stage = static_cast<int>(workAge) % 5;
+
+        if (working && stage == 0) {
+            scene.ring(tool.end, 7 * s, 4 * s,
+                       color(0x83DBC8, 0.65f), s);
+        } else if (working && stage == 1) {
+            V jaw = rotate({4 * s, 0}, age * 3);
+            scene.line(tool.end - jaw, tool.end + jaw,
+                       color(0xE0BF75), 2 * s);
+        } else if (working && stage == 3) {
+            scene.line(tool.end, tool.end + normal * (6 * s),
+                       color(0xDFD3B0), 4 * s);
+        } else {
+            scene.disk(tool.end, 2.8 * s, color(0xE5B66B));
+        }
+    };
+
+    // 后臂先画，被身体外壳盖住根部，制造前后层级；前臂最后画，始终完整可见。
+    drawTool(1);
+
     std::vector<V> hull;
 
     for (int i = 0; i < 32; ++i) {
@@ -316,31 +345,7 @@ void Spider::draw(Scene& scene, const World& w) const {
         scene.disk(local({-26 + i * 8.0, 9}, w),
                    1.7 * s, color(i == 0 ? 0xE8BE6C : 0x728D98));
 
-    for (int i = 0; i < 2; ++i) {
-        V root = local({17 + i * 11.0, 12}, w);
-
-        TwoBone tool = ik2(
-            root, tools[i], 29 * s, 34 * s, i == 0 ? 1 : -1);
-
-        scene.line(root, tool.joint, color(0xC9C5A5), 3 * s);
-        scene.line(tool.joint, tool.end, color(0xCFD6CE), 2 * s);
-
-        int stage = static_cast<int>(workAge) % 5;
-
-        if (working && stage == 0) {
-            scene.ring(tool.end, 7 * s, 4 * s,
-                       color(0x83DBC8, 0.65f), s);
-        } else if (working && stage == 1) {
-            V jaw = rotate({4 * s, 0}, age * 3);
-            scene.line(tool.end - jaw, tool.end + jaw,
-                       color(0xE0BF75), 2 * s);
-        } else if (working && stage == 3) {
-            scene.line(tool.end, tool.end + normal * (6 * s),
-                       color(0xDFD3B0), 4 * s);
-        } else {
-            scene.disk(tool.end, 2.8 * s, color(0xE5B66B));
-        }
-    }
+    drawTool(0);
 
     if (working && workAge > 3.8) {
         V a = tools[0], b = tools[1];
