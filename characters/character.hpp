@@ -52,6 +52,30 @@ struct Spark {
     double life = 0;
 };
 
+inline void contactShadow(
+    Scene& scene, const Surface& surface, V contact,
+    double along, double across, double strength)
+{
+    strength = std::clamp(strength, 0.0, 1.0);
+    if (strength <= 0.01) return;
+
+    V tangent = surface.tangent();
+    V normal = surface.outward;
+
+    std::vector<V> points;
+    constexpr int segments = 20;
+
+    for (int i = 0; i < segments; ++i) {
+        double a = TAU * i / segments;
+        points.push_back(contact +
+            tangent * (std::cos(a) * along) +
+            normal  * (std::sin(a) * across));
+    }
+
+    scene.poly(points, color(0x05080B, static_cast<float>(0.32 * strength)));
+    scene.draws.back().hitTestable = false;
+}
+
 inline void updateSparks(std::vector<Spark>& sparks, double dt) {
     for (Spark& p : sparks) {
         p.life -= dt;
