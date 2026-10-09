@@ -399,6 +399,10 @@ void Plant::tick(World& w, double dt) {
 void Plant::draw(Scene& scene, const World& w) const {
     double s = w.scale;
 
+    if (rootAttached) {
+        contactShadow(scene, rootSupport, rootSupport.at(rootU), 34, 10, 0.8);
+    }
+
     Color leafLight = color(
         w.palette == 1 ? 0x8AB178 :
         w.palette == 2 ? 0x99A3B0 : 0xA1C18F);
