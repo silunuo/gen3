@@ -585,10 +585,10 @@ void Spider::fall(World& w, double dt) {
 
 void Spider::hangLegs(const World& w, double dt) {
     for (int i = 0; i < 8; ++i) {
-        V hanging = body + V{
+        V hanging = body + rotate(V{
             (i - 3.5) * 15 * w.scale,
             91 * w.scale
-        };
+        }, angle);
 
         legs[i].foot = mix(
             legs[i].foot, hanging, follow(10, dt));
