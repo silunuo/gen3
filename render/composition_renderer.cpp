@@ -122,14 +122,16 @@ void Renderer::draw(const Scene& scene, bool picking, const RECT& desktop) {
         double needRight = box.r + margin;
         double needBottom = box.b + margin;
 
+        // 只检查"内容是否还落在舞台内"，不会因为舞台比当前内容宽裕
+        // 就强制收缩重建——减速/停下时包围盒会突然变小，如果立刻按
+        // 新尺寸收缩窗口，反而会在减速阶段触发本来要避免的那次闪烁。
+        // 舞台大小始终由触发重建那一刻的实际内容决定，不会无限变大。
         bool fits =
             stageValid &&
             needLeft >= stageLeft &&
             needTop >= stageTop &&
             needRight <= stageLeft + stageWidth &&
-            needBottom <= stageTop + stageHeight &&
-            stageWidth <= (needRight - needLeft) + 3 * pad &&
-            stageHeight <= (needBottom - needTop) + 3 * pad;
+            needBottom <= stageTop + stageHeight;
 
         if (!fits) {
             double l = std::floor((needLeft - pad) / tile) * tile;
