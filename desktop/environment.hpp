@@ -20,6 +20,7 @@
 
 #include "../core/math.hpp"
 
+#include <unordered_map>
 #include <vector>
 
 namespace pets {
@@ -75,8 +76,15 @@ public:
     const Surface* groundAt(double x) const;
     bool onScreen(V p) const;
 
+    // 某个窗口最近 withinSeconds 秒内是否移动/缩放过，供角色判断
+    // "值得去巡检一下"的目标。
+    bool recentlyMoved(HWND owner, double withinSeconds) const;
+
 private:
     std::vector<RECT> blockers;
+
+    std::unordered_map<HWND, RECT> previousRects;
+    std::unordered_map<HWND, ULONGLONG> lastMovedTick;
 
     void emitVisible(
         HWND owner, int edge,

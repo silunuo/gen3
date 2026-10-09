@@ -8,6 +8,9 @@
 
 namespace pets {
 
+enum class Patrol { Observing, Approaching, Inspecting, Working, Glancing, Resting };
+enum class WorkTask { EdgePatrol, Fasten, SpotWeld, ToolCheck, Wiring, TetherCheck };
+
 class Spider final : public Character {
 public:
     const wchar_t* name() const override { return L"机械蜘蛛"; }
@@ -42,12 +45,26 @@ private:
     bool held = false, attached = false, working = false;
     bool tethered = false, hasJob = false;
 
-    double age = 0, decision = 2, gait = 0;
+    double age = 0, gait = 0;
     double workAge = 0, compression = 0, verticalSpeed = 0;
     double sparkClock = 0;
 
     V job{};
     std::vector<Spark> sparks;
+
+    Patrol patrol = Patrol::Observing;
+    WorkTask task = WorkTask::EdgePatrol;
+    double patrolTimer = 2.0;
+    double patrolTargetU = 0.5;
+    bool patrolPriority = false;
+    bool viaTether = false;
+
+    V dragLean{};
+
+    V downPoint{};
+    double downAge = -1;
+    bool pendingGrab = false;
+    double tapReact = 0;
 
     Surface tetherSurface{}, destinationSurface{};
     V tetherAnchor{}, tetherVelocity{};
@@ -64,6 +81,11 @@ private:
     bool tryCorner(World& w);
     const Surface* chooseLower(World& w) const;
     const Surface* chooseHigher(World& w) const;
+
+    void updatePatrol(World& w, double dt);
+    bool choosePatrolTarget(
+        World& w, Surface& outSurface, double& outU, bool& outPriority) const;
+    WorkTask chooseTask() const;
 
     void beginTether(const Surface& destinationTarget, double parameter, World& w);
     void tickTether(World& w, double dt);

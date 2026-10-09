@@ -21,21 +21,23 @@ void Spider::initialize(World& w, const Settings& settings) {
 bool Spider::down(V p, World& w) {
     if (dist(p, body) > 65 * w.scale) return false;
 
-    held = true;
-    offset = body - p;
+    // 轻点和按住拖拽要分开处理：先记录按下位置，真正判定留到 tick()，
+    // 这样快速松开可以只触发"轻微一让"而不是把蜘蛛整个薅起来。
+    downPoint = p;
+    downAge = age;
+    pendingGrab = true;
 
-    attached = false;
-    tethered = false;
-    working = false;
-    verticalSpeed = 0;
-
-    for (Leg& leg : legs) leg.stepping = false;
-
-    w.audio.play(0, 430);
     return true;
 }
 
 void Spider::up(World& w) {
+    if (pendingGrab) {
+        pendingGrab = false;
+        tapReact = 0.4;
+        compression = 10 * w.scale;
+        return;
+    }
+
     if (!held) return;
 
     held = false;
@@ -61,11 +63,17 @@ void Spider::command(int command, V point, World& w) {
     job = point;
     hasJob = true;
 
-    if (attached && support.sameOwner(*surface)) {
-        destination = std::clamp(
-            surface->parameter(point), 0.12, 0.88);
-    } else if (attached) {
-        beginTether(*surface, surface->parameter(point), w);
+    if (!attached) return;
+
+    working = false;
+    patrol = Patrol::Approaching;
+
+    if (support.sameOwner(*surface)) {
+        patrolTargetU = std::clamp(surface->parameter(point), 0.12, 0.88);
+        destination = patrolTargetU;
+    } else {
+        patrolTargetU = std::clamp(surface->parameter(point), 0.15, 0.85);
+        beginTether(*surface, patrolTargetU, w);
     }
 }
 
@@ -76,6 +84,30 @@ void Spider::save(const Settings& settings) const {
 void Spider::tick(World& w, double dt) {
     age += dt;
     updateSparks(sparks, dt);
+
+    if (tapReact > 0) tapReact -= dt;
+
+    if (pendingGrab) {
+        bool promote =
+            dist(w.mouse, downPoint) > 18 * w.scale ||
+            (age - downAge) > 0.18;
+
+        if (promote) {
+            pendingGrab = false;
+
+            held = true;
+            offset = body - w.mouse;
+
+            attached = false;
+            tethered = false;
+            working = false;
+            verticalSpeed = 0;
+
+            for (Leg& leg : legs) leg.stepping = false;
+
+            w.audio.play(0, 430);
+        }
+    }
 
     if (held) {
         V old = body;
@@ -107,8 +139,27 @@ void Spider::tick(World& w, double dt) {
         } else {
             V delta = next->at(u) - support.at(u);
             translate(delta);
+
+            // 慢拖几乎看不出来，快拖会让身体明显向运动反方向后仰——
+            // 不用另外判断"慢/快"的阈值，两种姿态是同一条缓动曲线的两端。
+            V dragVelocity = delta / dt;
+            V targetLean = limit(dragVelocity * -0.012, 22 * w.scale);
+            dragLean = mix(dragLean, targetLean, follow(8, dt));
+
+            // 表面被上层窗口新裁短到不安全的程度，当作"快被挡住了"，
+            // 不等真走到裁短后的边缘掉下去，直接打断当前阶段重新选目标。
+            if (next->length() < 150 * w.scale ||
+                next->length() < support.length() * 0.5)
+            {
+                patrol = Patrol::Observing;
+                patrolTimer = 0;
+                working = false;
+            }
+
             support = *next;
         }
+    } else {
+        dragLean = {};
     }
 
     if (!attached) {
@@ -132,58 +183,9 @@ void Spider::tick(World& w, double dt) {
     topView += (targetView - topView) * follow(6, dt);
     compression *= std::exp(-12 * dt);
 
-    if (hasJob && segmentDistance(job, support.a, support.b) < 180 * w.scale) {
-        destination = std::clamp(
-            support.parameter(job), 0.12, 0.88);
-    }
+    updatePatrol(w, dt);
 
-    decision -= dt;
-
-    if (decision <= 0 && !hasJob) {
-        decision = 4.5 + std::sin(age * 0.7) * 1.2;
-        destination = 0.15 + (0.5 + 0.5 * std::sin(age * 0.83)) * 0.7;
-
-        double roll = std::sin(age * 0.29);
-
-        if (roll > 0.55) {
-            const Surface* lower = chooseLower(w);
-
-            if (lower) {
-                beginTether(*lower, 0.5, w);
-                return;
-            }
-        } else if (roll < -0.55) {
-            const Surface* higher = chooseHigher(w);
-
-            if (higher) {
-                beginTether(*higher, 0.5, w);
-                return;
-            }
-        }
-    }
-
-    double delta = destination - u;
-    bool arrived = std::abs(delta) * support.length() < 5 * w.scale;
-
-    working = arrived;
-
-    if (working) {
-        workAge += dt;
-
-        if (workAge > 4.8) {
-            working = false;
-            workAge = 0;
-            hasJob = false;
-
-            if (!tryCorner(w))
-                destination = destination < 0.5 ? 0.84 : 0.16;
-        }
-    } else {
-        double speed = 74 * w.scale;
-        double step = speed * dt / std::max(1.0, support.length());
-
-        u += std::clamp(delta, -step, step);
-    }
+    if (tethered) return;
 
     double endMargin = std::min(
         0.35, 76 * w.scale / support.length());
@@ -253,6 +255,10 @@ void Spider::draw(Scene& scene, const World& w) const {
     if (tethered) {
         scene.disk(tetherAnchor, 5 * s, color(0xB3B9B5));
         scene.line(tetherAnchor, body, color(0x8B969E, 0.9f), 1.4 * s);
+    } else if (working && task == WorkTask::TetherCheck) {
+        // 刚甩钩过来，回头看一眼那条线——复用吊索的画法，淡一些。
+        scene.disk(tetherAnchor, 4 * s, color(0xB3B9B5, 0.8f));
+        scene.line(tetherAnchor, body, color(0x8B969E, 0.6f), 1.1 * s);
     }
 
     for (int layer = 0; layer < 2; ++layer) {
@@ -297,18 +303,28 @@ void Spider::draw(Scene& scene, const World& w) const {
         scene.line(root, tool.joint, color(0xC9C5A5), 3 * s);
         scene.line(tool.joint, tool.end, color(0xCFD6CE), 2 * s);
 
-        int stage = static_cast<int>(workAge) % 5;
-
-        if (working && stage == 0) {
+        if (working && task == WorkTask::EdgePatrol) {
             scene.ring(tool.end, 7 * s, 4 * s,
                        color(0x83DBC8, 0.65f), s);
-        } else if (working && stage == 1) {
-            V jaw = rotate({4 * s, 0}, age * 3);
+        } else if (working && task == WorkTask::Fasten) {
+            V jaw = rotate({4 * s, 0}, age * 9);
             scene.line(tool.end - jaw, tool.end + jaw,
                        color(0xE0BF75), 2 * s);
-        } else if (working && stage == 3) {
-            scene.line(tool.end, tool.end + normal * (6 * s),
-                       color(0xDFD3B0), 4 * s);
+        } else if (working && task == WorkTask::ToolCheck) {
+            scene.disk(tool.end, 3.4 * s, color(0xDFD3B0));
+        } else if (working && task == WorkTask::Wiring) {
+            double t = workAge / 4.2;
+
+            double extend =
+                t < 0.35 ? t / 0.35 :
+                t < 0.7  ? 1.0 :
+                           std::max(0.0, 1.0 - (t - 0.7) / 0.3);
+
+            V dir = support.tangent() * (i == 0 ? 1.0 : -1.0);
+            V wireEnd = tool.end + dir * (26 * s * extend);
+
+            scene.line(tool.end, wireEnd, color(0xC7B98A, 0.85f), 1.6 * s);
+            scene.disk(tool.end, 2.4 * s, color(0xE5B66B));
         } else {
             scene.disk(tool.end, 2.8 * s, color(0xE5B66B));
         }
@@ -322,7 +338,7 @@ void Spider::draw(Scene& scene, const World& w) const {
     for (int i = 0; i < 32; ++i) {
         double a = TAU * i / 32;
 
-        hull.push_back(body + rotate({
+        hull.push_back(body + dragLean + rotate({
             std::cos(a) * 51 * s,
             std::sin(a) * (23 + topView * 8) * s
         }, angle));
@@ -342,7 +358,19 @@ void Spider::draw(Scene& scene, const World& w) const {
     scene.ellipse(sensor, {17 * s, 12 * s},
                   color(0x263947), color(0x14222D));
 
-    V look = unit(w.mouse - sensor);
+    V look;
+
+    if (tapReact > 0) {
+        look = unit(downPoint - sensor);
+    } else if (patrol == Patrol::Resting && patrolTimer < 0.3) {
+        // 脱离前整理：出发前快速左右扫一眼。
+        look = rotate(support.tangent(), std::sin(age * 10) * 0.9);
+    } else if (patrol == Patrol::Inspecting || patrol == Patrol::Working) {
+        look = support.tangent() * (destination >= u ? 1.0 : -1.0);
+    } else {
+        look = unit(w.mouse - sensor);
+    }
+
     scene.disk(sensor + look * (8 * s), 4.5 * s, color(0x79E9D5));
 
     for (int i = 0; i < 3; ++i)
@@ -351,7 +379,7 @@ void Spider::draw(Scene& scene, const World& w) const {
 
     drawTool(0);
 
-    if (working && workAge > 3.8) {
+    if (working && task == WorkTask::SpotWeld && workAge > 0.8) {
         V a = tools[0], b = tools[1];
 
         for (int i = 1; i <= 12; ++i) {
@@ -380,7 +408,7 @@ double Spider::rideHeight(const World& w) const {
 }
 
 V Spider::local(V p, const World& w) const {
-    return body + rotate(p * w.scale, angle) -
+    return body + dragLean + rotate(p * w.scale, angle) -
            normal * compression;
 }
 
@@ -528,6 +556,216 @@ const Surface* Spider::chooseHigher(World& w) const {
     return result;
 }
 
+void Spider::updatePatrol(World& w, double dt) {
+    switch (patrol) {
+    case Patrol::Observing: {
+        if (!hasJob) {
+            patrolTimer -= dt;
+            if (patrolTimer > 0) break;
+
+            patrolTimer = 14 + std::sin(age * 0.23) * 6;
+        }
+
+        Surface target;
+        double targetU = 0.5;
+        bool priority = false;
+
+        if (!choosePatrolTarget(w, target, targetU, priority)) break;
+
+        patrolTargetU = targetU;
+        patrolPriority = priority;
+
+        if (support.sameOwner(target)) {
+            destination = patrolTargetU;
+            viaTether = false;
+        } else {
+            beginTether(target, patrolTargetU, w);
+            viaTether = true;
+        }
+
+        patrol = Patrol::Approaching;
+        break;
+    }
+
+    case Patrol::Approaching: {
+        if (tethered) break;
+
+        // attach() 落地后会把 destination 重置到表面另一端（通用探索的
+        // 默认去向），这里要覆盖回巡逻真正瞄准的那个点，否则甩钩落地
+        // 后会立刻又往别处走，永远不会真正"到达"去检查。
+        destination = patrolTargetU;
+
+        double delta = destination - u;
+        bool arrived = std::abs(delta) * support.length() < 5 * w.scale;
+
+        if (arrived) {
+            patrol = Patrol::Inspecting;
+            patrolTimer = 0.6 + std::sin(age * 1.3) * 0.2;
+        } else {
+            double speed = 74 * w.scale;
+            double step = speed * dt / std::max(1.0, support.length());
+
+            u += std::clamp(delta, -step, step);
+        }
+
+        break;
+    }
+
+    case Patrol::Inspecting: {
+        patrolTimer -= dt;
+        if (patrolTimer > 0) break;
+
+        bool doWork = patrolPriority || viaTether || std::sin(age * 1.7) > 0.3;
+
+        if (doWork) {
+            task = viaTether ? WorkTask::TetherCheck : chooseTask();
+            workAge = 0;
+            working = true;
+            patrol = Patrol::Working;
+        } else {
+            patrolTimer = 0.5;
+            patrol = Patrol::Glancing;
+        }
+
+        break;
+    }
+
+    case Patrol::Working: {
+        workAge += dt;
+
+        double duration =
+            task == WorkTask::EdgePatrol  ? 2.5 :
+            task == WorkTask::ToolCheck   ? 3.0 :
+            task == WorkTask::TetherCheck ? 3.0 :
+            task == WorkTask::Fasten      ? 4.0 :
+            task == WorkTask::Wiring      ? 4.2 : 4.5;
+
+        if (workAge > duration) {
+            working = false;
+            workAge = 0;
+            hasJob = false;
+            patrolPriority = false;
+            viaTether = false;
+
+            patrolTimer = 3.0 + std::sin(age * 0.9) * 1.5;
+            patrol = Patrol::Resting;
+        }
+
+        break;
+    }
+
+    case Patrol::Glancing: {
+        patrolTimer -= dt;
+
+        if (patrolTimer <= 0) {
+            hasJob = false;
+            patrolPriority = false;
+
+            patrolTimer = 2.0;
+            patrol = Patrol::Resting;
+        }
+
+        break;
+    }
+
+    case Patrol::Resting: {
+        patrolTimer -= dt;
+
+        if (patrolTimer <= 0) {
+            if (!tryCorner(w))
+                destination = destination < 0.5 ? 0.84 : 0.16;
+
+            patrol = Patrol::Observing;
+            patrolTimer = 0.3;
+        }
+
+        break;
+    }
+    }
+}
+
+bool Spider::choosePatrolTarget(
+    World& w, Surface& outSurface, double& outU, bool& outPriority) const
+{
+    if (hasJob) {
+        const Surface* surface = w.desktop.nearest(
+            job, 240 * w.scale, false, 100 * w.scale);
+
+        if (surface) {
+            outSurface = *surface;
+            outU = std::clamp(surface->parameter(job), 0.12, 0.88);
+            outPriority = true;
+            return true;
+        }
+    }
+
+    struct Candidate { const Surface* surface; double weight; };
+    std::vector<Candidate> candidates;
+
+    for (const Surface& s : w.desktop.surfaces) {
+        if (s.length() < 60 * w.scale) continue;
+
+        double weight = 1.0;
+
+        if (s.edge == 0) weight += 1.0;
+        if (s.ground) weight += 1.5;
+        if (w.desktop.recentlyMoved(s.owner, 8.0)) weight += 4.0;
+
+        bool nearScreenEdge =
+            std::abs(s.a.x - w.desktop.virtualRect.left) < 4 ||
+            std::abs(s.b.x - w.desktop.virtualRect.right) < 4 ||
+            std::abs(s.a.y - w.desktop.virtualRect.top) < 4 ||
+            std::abs(s.b.y - w.desktop.virtualRect.bottom) < 4;
+
+        if (nearScreenEdge) weight += 1.0;
+
+        candidates.push_back({&s, weight});
+    }
+
+    if (const Surface* lower = chooseLower(w))
+        candidates.push_back({lower, 2.5});
+
+    if (const Surface* higher = chooseHigher(w))
+        candidates.push_back({higher, 2.0});
+
+    if (candidates.empty()) return false;
+
+    double total = 0;
+    for (const Candidate& c : candidates) total += c.weight;
+
+    double pick = std::fmod(age * 37.0, total);
+    double accum = 0;
+    const Surface* chosen = candidates.back().surface;
+
+    for (const Candidate& c : candidates) {
+        accum += c.weight;
+
+        if (pick <= accum) {
+            chosen = c.surface;
+            break;
+        }
+    }
+
+    outSurface = *chosen;
+    outU = 0.15 + (0.5 + 0.5 * std::sin(age * 0.83)) * 0.7;
+    outPriority = w.desktop.recentlyMoved(chosen->owner, 8.0);
+
+    return true;
+}
+
+WorkTask Spider::chooseTask() const {
+    if (patrolPriority)
+        return std::sin(age * 2.3) > 0 ? WorkTask::Fasten : WorkTask::SpotWeld;
+
+    double roll = std::fmod(age * 11.0, 5.0);
+
+    if (roll < 1.0) return WorkTask::EdgePatrol;
+    if (roll < 2.0) return WorkTask::Fasten;
+    if (roll < 3.0) return WorkTask::SpotWeld;
+    if (roll < 4.0) return WorkTask::ToolCheck;
+    return WorkTask::Wiring;
+}
+
 void Spider::beginTether(const Surface& destinationTarget, double parameter, World& w) {
     tetherSurface = support;
     tetherAnchorU = u;
@@ -621,7 +859,14 @@ void Spider::updateTools(World& w, double dt) {
     for (int i = 0; i < 2; ++i) {
         V desired = local({28 + i * 10.0, 18}, w);
 
-        if (working) {
+        if (working && task == WorkTask::ToolCheck) {
+            // 两只工具臂轮流伸展再收回，错开一点相位，看起来像在依次自检。
+            double phase = std::fmod(workAge - i * 0.8 + 3.0, 1.5);
+
+            desired = phase < 0.75
+                ? local({70, -10.0 + i * 50}, w)
+                : local({28 + i * 10.0, 18}, w);
+        } else if (working) {
             desired = local({
                 53 + i * 7.0 + std::sin(age * 5 + i) * 3,
                 42 + std::cos(age * 4 + i) * 3
@@ -631,7 +876,7 @@ void Spider::updateTools(World& w, double dt) {
         tools[i] = mix(tools[i], desired, follow(12, dt));
     }
 
-    if (working && workAge >= 2 && workAge < 3) {
+    if (working && task == WorkTask::SpotWeld && workAge >= 1.2 && workAge < 2.2) {
         sparkClock -= dt;
 
         if (sparkClock <= 0) {

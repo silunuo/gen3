@@ -3,6 +3,7 @@
 #include <dwmapi.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 
 #pragma comment(lib, "user32.lib")
@@ -128,6 +129,14 @@ bool Desktop::onScreen(V p) const {
     return false;
 }
 
+bool Desktop::recentlyMoved(HWND owner, double withinSeconds) const {
+    auto it = lastMovedTick.find(owner);
+    if (it == lastMovedTick.end()) return false;
+
+    ULONGLONG elapsed = GetTickCount64() - it->second;
+    return static_cast<double>(elapsed) < withinSeconds * 1000.0;
+}
+
 void Desktop::emitVisible(
     HWND owner, int edge,
     V a, V b, V normal)
@@ -211,6 +220,22 @@ void Desktop::addWindow(HWND hwnd) {
         GetWindowRect(hwnd, &r);
 
     if (r.right <= r.left || r.bottom <= r.top) return;
+
+    auto previous = previousRects.find(hwnd);
+
+    if (previous != previousRects.end()) {
+        const RECT& p = previous->second;
+
+        bool moved =
+            std::abs(p.left - r.left) > 3 ||
+            std::abs(p.top - r.top) > 3 ||
+            std::abs(p.right - r.right) > 3 ||
+            std::abs(p.bottom - r.bottom) > 3;
+
+        if (moved) lastMovedTick[hwnd] = GetTickCount64();
+    }
+
+    previousRects[hwnd] = r;
 
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
     LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
