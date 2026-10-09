@@ -56,6 +56,7 @@ struct Draw {
     Color b{};
 
     bool gradient = false;
+    bool hitTestable = true;
 };
 
 class Scene {
@@ -148,6 +149,7 @@ public:
 
         for (const Draw& d : draws) {
             if (d.a.a < 0.015f) continue;
+            if (!d.hitTestable) continue;
 
             if (d.shape == Shape::Ellipse) {
                 V p = d.points[0];
