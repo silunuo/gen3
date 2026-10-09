@@ -378,7 +378,12 @@ void Youxi::tick(World& w, double dt) {
         drag == Drag::Thread,
         w.mouse + offset);
 
-    bool touchNest = resting || (returning && dist(center, nest) < 85 * s);
+    double nestDistance = dist(center, nest);
+
+    if (!nestTouch && nestDistance < 70 * s) nestTouch = true;
+    else if (nestTouch && nestDistance > 95 * s) nestTouch = false;
+
+    bool touchNest = resting || (returning && nestTouch);
 
     shortThread.tick(
         dt,

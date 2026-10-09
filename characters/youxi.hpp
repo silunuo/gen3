@@ -66,6 +66,7 @@ private:
     bool returning = false;
     bool resting = false;
     bool wasInside = false;
+    bool nestTouch = false;
 
     double age = 0;
     double targetClock = 0;
