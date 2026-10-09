@@ -63,6 +63,7 @@ private:
     void attach(const Surface& s, double parameter, World& w);
     bool tryCorner(World& w);
     const Surface* chooseLower(World& w) const;
+    const Surface* chooseHigher(World& w) const;
 
     void beginTether(const Surface& destinationTarget, double parameter, World& w);
     void tickTether(World& w, double dt);

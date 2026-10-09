@@ -64,7 +64,7 @@ void Spider::command(int command, V point, World& w) {
     if (attached && support.sameOwner(*surface)) {
         destination = std::clamp(
             surface->parameter(point), 0.12, 0.88);
-    } else if (attached && surface->a.y > body.y) {
+    } else if (attached) {
         beginTether(*surface, surface->parameter(point), w);
     }
 }
@@ -143,11 +143,20 @@ void Spider::tick(World& w, double dt) {
         decision = 4.5 + std::sin(age * 0.7) * 1.2;
         destination = 0.15 + (0.5 + 0.5 * std::sin(age * 0.83)) * 0.7;
 
-        if (std::sin(age * 0.29) > 0.55) {
+        double roll = std::sin(age * 0.29);
+
+        if (roll > 0.55) {
             const Surface* lower = chooseLower(w);
 
             if (lower) {
                 beginTether(*lower, 0.5, w);
+                return;
+            }
+        } else if (roll < -0.55) {
+            const Surface* higher = chooseHigher(w);
+
+            if (higher) {
+                beginTether(*higher, 0.5, w);
                 return;
             }
         }
@@ -457,6 +466,33 @@ const Surface* Spider::chooseLower(World& w) const {
 
         if (landing.y < body.y + 90 * w.scale ||
             landing.y > body.y + 650 * w.scale ||
+            std::abs(landing.x - body.x) > 300 * w.scale ||
+            s.length() < 190 * w.scale)
+            continue;
+
+        double score = dist(body, landing);
+
+        if (score < best) {
+            best = score;
+            result = &s;
+        }
+    }
+
+    return result;
+}
+
+const Surface* Spider::chooseHigher(World& w) const {
+    const Surface* result = nullptr;
+    double best = 1e30;
+
+    for (const Surface& s : w.desktop.surfaces) {
+        if (s.edge != 0 && !s.ground) continue;
+        if (s.sameOwner(support)) continue;
+
+        V landing = closestOnSegment(body, s.a, s.b);
+
+        if (landing.y > body.y - 90 * w.scale ||
+            landing.y < body.y - 650 * w.scale ||
             std::abs(landing.x - body.x) > 300 * w.scale ||
             s.length() < 190 * w.scale)
             continue;
