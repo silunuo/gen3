@@ -237,6 +237,10 @@ void Spider::tick(World& w, double dt) {
 void Spider::draw(Scene& scene, const World& w) const {
     double s = w.scale;
 
+    if (attached && !held) {
+        contactShadow(scene, support, support.at(u), 58 * s, 16 * s, 0.85);
+    }
+
     if (tethered) {
         scene.disk(tetherAnchor, 5 * s, color(0xB3B9B5));
         scene.line(tetherAnchor, body, color(0x8B969E, 0.9f), 1.4 * s);
