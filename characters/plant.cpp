@@ -357,10 +357,18 @@ void Plant::tick(World& w, double dt) {
                     dt));
         }
 
+        double reachLimit =
+            lengthPerSegment * (branch.points.size() - 1) * 0.99;
+
+        V fabrikTarget = branch.tip;
+
+        if (dist(root, fabrikTarget) > reachLimit)
+            fabrikTarget = root + unit(fabrikTarget - root) * reachLimit;
+
         fabrik(
             branch.points,
             root,
-            branch.tip,
+            fabrikTarget,
             lengthPerSegment,
             32);
 
