@@ -449,10 +449,21 @@ bool Spider::tryCorner(World& w) {
             dist(next.b, corner) > 4)
             continue;
 
-        // 沿接近的端点换面，足端保持原位置后逐足重新落点。
+        // 沿接近的端点换面。新旧表面朝向往往相差很大（比如顶边转侧边），
+        // 腿如果还留在旧表面上逐足补步，会出现身体已经贴到新面、
+        // 腿却伸向旧面的割裂感，所以换面时直接把所有足端落到新表面上。
         support = next;
         u = dist(next.a, corner) < dist(next.b, corner) ? 0.14 : 0.86;
         destination = u < 0.5 ? 0.8 : 0.2;
+
+        for (int i = 0; i < 8; ++i) {
+            double footU = u +
+                (i - 3.5) * 24 * w.scale / support.length();
+
+            legs[i].foot = support.at(footU);
+            legs[i].stepping = false;
+        }
+
         return true;
     }
 
