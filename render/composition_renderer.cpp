@@ -119,18 +119,6 @@ void Renderer::draw(const Scene& scene, bool picking, const RECT& desktop) {
 
     resize(std::max(32, right - left), std::max(32, bottom - top));
 
-    SetWindowPos(
-        window, HWND_TOPMOST, left, top, width, height,
-        SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-
-    if (picking) {
-        SetWindowRgn(window, nullptr, FALSE);
-    } else {
-        HRGN region = scene.region(left, top);
-        if (!SetWindowRgn(window, region, FALSE))
-            DeleteObject(region);
-    }
-
     context->BeginDraw();
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     context->Clear(color(0, 0));
@@ -145,6 +133,31 @@ void Renderer::draw(const Scene& scene, bool picking, const RECT& desktop) {
 
     check(context->EndDraw());
     check(swap->Present(1, 0));
+
+    // 窗口的位置/大小/裁剪区在新画面已经 Present 之后才切换，
+    // 避免出现"新的窗口形状/位置，显示的却还是上一帧内容"的一帧闪烁。
+    bool moved =
+        left != windowLeft || top != windowTop ||
+        width != windowWidth || height != windowHeight;
+
+    if (moved) {
+        SetWindowPos(
+            window, HWND_TOPMOST, left, top, width, height,
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+
+        windowLeft = left;
+        windowTop = top;
+        windowWidth = width;
+        windowHeight = height;
+    }
+
+    if (picking) {
+        SetWindowRgn(window, nullptr, FALSE);
+    } else {
+        HRGN region = scene.region(left, top);
+        if (!SetWindowRgn(window, region, FALSE))
+            DeleteObject(region);
+    }
 }
 
 D2D1_POINT_2F Renderer::point(V p) {

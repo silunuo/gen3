@@ -21,6 +21,8 @@
 
 #include <windows.h>
 
+#include <climits>
+
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <d2d1_1.h>
@@ -41,6 +43,9 @@ public:
 private:
     HWND window{};
     int width = 0, height = 0;
+
+    int windowLeft = INT_MIN, windowTop = INT_MIN;
+    int windowWidth = -1, windowHeight = -1;
 
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> immediate;
