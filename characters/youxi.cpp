@@ -449,6 +449,16 @@ void Youxi::tick(World& w, double dt) {
 void Youxi::draw(Scene& scene, const World& w) const {
     double s = w.scale;
 
+    if (const Surface* ground = w.desktop.groundAt(center.x)) {
+        double lift = std::max(0.0, ground->a.y - center.y);
+        double strength = std::clamp(1.0 - lift / (240 * s), 0.0, 0.5);
+        double scaleDown = 1.0 - 0.45 * std::clamp(lift / 240.0, 0.0, 1.0);
+
+        contactShadow(
+            scene, *ground, ground->at(ground->parameter(center)),
+            30 * s * scaleDown, 9 * s * scaleDown, strength);
+    }
+
     Color rim = color(
         w.palette == 1 ? 0xA7A5EF :
         w.palette == 2 ? 0xF0C181 : 0xAFE4D6,
