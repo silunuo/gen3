@@ -104,6 +104,10 @@ private:
     double anchorClock = 2;
     double dropClock = 4;
 
+    double carrying = 0;
+    double preCarrySpread = 1;
+    V rootSway{};
+
     double segmentLength(const Branch& branch, const World& w) const;
 
     void translate(V delta);

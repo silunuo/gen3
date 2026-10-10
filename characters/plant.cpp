@@ -101,6 +101,10 @@ bool Plant::down(V p, World& w) {
         rootAttached = false;
         rootVelocity = 0;
 
+        // 搬株：收叶、解须、聚蔓——先把枝条收拢，再随移动轻摆。
+        preCarrySpread = desiredSpread;
+        desiredSpread = std::min(desiredSpread, 0.5);
+
         for (Branch& branch : branches)
             branch.attached = false;
 
@@ -146,6 +150,10 @@ void Plant::up(World& w) {
     double s = w.scale;
 
     if (dragPart == 0) {
+        // 附根→展开：放下后恢复搬运前的铺展幅度，并立刻找新支撑。
+        desiredSpread = preCarrySpread;
+        anchorClock = 0;
+
         const Surface* surface = w.desktop.nearest(
             root + V{0, 29 * s},
             70 * s,
@@ -241,10 +249,19 @@ void Plant::tick(World& w, double dt) {
 
     if (dragPart == 0) {
         V target = w.mouse + offset;
+        V old = root;
         V next = mix(root, target, follow(22, dt));
+
+        V dragVelocity = (next - old) / dt;
+        V swayTarget = limit(dragVelocity * -0.01, 18 * s);
+        rootSway = mix(rootSway, swayTarget, follow(6, dt));
+
         translate(next - root);
+        carrying += (1.0 - carrying) * follow(4, dt);
     } else {
         updateRoot(w, dt);
+        rootSway = mix(rootSway, V{}, follow(3, dt));
+        carrying += (0.0 - carrying) * follow(2.5, dt);
     }
 
     anchorClock -= dt;
@@ -281,7 +298,7 @@ void Plant::tick(World& w, double dt) {
         double side = branchIndex == 0 ? 1 : -1;
         double height = branchIndex == 0 ? 262 : 210;
 
-        V target = root + V{
+        V target = root + rootSway + V{
             side * (145 + std::sin(age * 0.43 + branchIndex) * 20) *
                 s * spread,
 
@@ -823,7 +840,7 @@ Plant::Leaf Plant::leafGeometry(
 
     double opening =
         std::clamp(
-            1 - wave * 0.73 - sleep * 0.55,
+            1 - wave * 0.73 - sleep * 0.55 - carrying * 0.4,
             0.15, 1.0);
 
     double size =
