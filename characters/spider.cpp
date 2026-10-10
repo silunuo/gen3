@@ -303,15 +303,51 @@ void Spider::draw(Scene& scene, const World& w) const {
         scene.line(root, tool.joint, color(0xC9C5A5), 3 * s);
         scene.line(tool.joint, tool.end, color(0xCFD6CE), 2 * s);
 
-        if (working && task == WorkTask::EdgePatrol) {
+        // 五种工具各自的外观：探测头、微型夹具、紧固头、点焊头、小刷头。
+        auto drawProbe = [&] {
             scene.ring(tool.end, 7 * s, 4 * s,
                        color(0x83DBC8, 0.65f), s);
-        } else if (working && task == WorkTask::Fasten) {
-            V jaw = rotate({4 * s, 0}, age * 9);
-            scene.line(tool.end - jaw, tool.end + jaw,
+            scene.disk(tool.end, 1.6 * s, color(0xBFF2E6));
+        };
+
+        auto drawClamp = [&] {
+            double spread = 0.35 + std::sin(age * 6) * 0.12;
+            V jawA = rotate(V{5 * s, 0}, spread);
+            V jawB = rotate(V{5 * s, 0}, -spread);
+
+            scene.line(tool.end, tool.end + jawA, color(0xDCE3B8), 1.8 * s);
+            scene.line(tool.end, tool.end + jawB, color(0xDCE3B8), 1.8 * s);
+            scene.disk(tool.end, 1.6 * s, color(0xB9C98A));
+        };
+
+        auto drawFastener = [&] {
+            V arm = rotate(V{4 * s, 0}, age * 9);
+            scene.line(tool.end - arm, tool.end + arm,
                        color(0xE0BF75), 2 * s);
-        } else if (working && task == WorkTask::ToolCheck) {
-            scene.disk(tool.end, 3.4 * s, color(0xDFD3B0));
+            scene.disk(tool.end, 1.8 * s, color(0xE0BF75));
+        };
+
+        auto drawWelder = [&] {
+            scene.disk(tool.end, 2.6 * s, color(0xE58B5B));
+            scene.disk(tool.end, 1.1 * s, color(0xFFE2B0));
+        };
+
+        auto drawBrush = [&] {
+            double sweep = std::sin(age * 10) * 0.5;
+
+            for (int b = -2; b <= 2; ++b) {
+                V bristle = rotate(V{0, 6 * s}, sweep + b * 0.18);
+                scene.line(tool.end, tool.end + bristle,
+                           color(0xD9D0A8, 0.8f), 1.1 * s);
+            }
+        };
+
+        if (working && task == WorkTask::EdgePatrol) {
+            drawProbe();
+        } else if (working && task == WorkTask::Fasten) {
+            drawFastener();
+        } else if (working && task == WorkTask::SpotWeld) {
+            drawWelder();
         } else if (working && task == WorkTask::Wiring) {
             double t = workAge / 4.2;
 
@@ -324,7 +360,19 @@ void Spider::draw(Scene& scene, const World& w) const {
             V wireEnd = tool.end + dir * (26 * s * extend);
 
             scene.line(tool.end, wireEnd, color(0xC7B98A, 0.85f), 1.6 * s);
-            scene.disk(tool.end, 2.4 * s, color(0xE5B66B));
+            drawClamp();
+        } else if (working && task == WorkTask::ToolCheck) {
+            // 工具自检：五种工具依次展开检查，最后用小刷头擦拭收尾。
+            int phase = static_cast<int>(
+                std::fmod(workAge, 3.0) / 0.6) % 5;
+
+            switch (phase) {
+                case 0: drawProbe(); break;
+                case 1: drawClamp(); break;
+                case 2: drawFastener(); break;
+                case 3: drawWelder(); break;
+                default: drawBrush(); break;
+            }
         } else {
             scene.disk(tool.end, 2.8 * s, color(0xE5B66B));
         }
