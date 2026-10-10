@@ -164,6 +164,10 @@ void Application::initialize(HWND hwnd) {
             settings.get(L"Application", L"palette", 0)),
         0, 2);
 
+    world.workFrequency = std::clamp(
+        settings.get(L"Application", L"workFrequency", 1.0),
+        0.5, 1.8);
+
     active = static_cast<size_t>(std::clamp(
         static_cast<int>(
             settings.get(L"Application", L"character", 0)),
@@ -456,6 +460,18 @@ void Application::execute(int command) {
         world.palette = command - PaletteOne;
         break;
 
+    case WorkLow:
+        world.workFrequency = 0.5;
+        break;
+
+    case WorkNormal:
+        world.workFrequency = 1;
+        break;
+
+    case WorkHigh:
+        world.workFrequency = 1.8;
+        break;
+
     case Quit:
         DestroyWindow(window);
         return;
@@ -542,6 +558,25 @@ void Application::showMenu() {
         MF_POPUP,
         reinterpret_cast<UINT_PTR>(paletteMenu),
         L"配色");
+
+    if (active == 0) {
+        HMENU workMenu = CreatePopupMenu();
+
+        item(workMenu, WorkLow, L"安静",
+             std::abs(world.workFrequency - 0.5) < 0.01);
+
+        item(workMenu, WorkNormal, L"正常",
+             std::abs(world.workFrequency - 1) < 0.01);
+
+        item(workMenu, WorkHigh, L"勤快",
+             std::abs(world.workFrequency - 1.8) < 0.01);
+
+        AppendMenuW(
+            menu,
+            MF_POPUP,
+            reinterpret_cast<UINT_PTR>(workMenu),
+            L"维修表演频率");
+    }
 
     item(
         menu,
@@ -638,6 +673,7 @@ void Application::save() const {
 
     settings.set(L"Application", L"scale", world.scale);
     settings.set(L"Application", L"palette", world.palette);
+    settings.set(L"Application", L"workFrequency", world.workFrequency);
     settings.set(L"Application", L"sound", world.audio.enabled ? 1 : 0);
     settings.set(
         L"Application", L"hideFullscreen",

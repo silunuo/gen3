@@ -611,7 +611,8 @@ void Spider::updatePatrol(World& w, double dt) {
             patrolTimer -= dt;
             if (patrolTimer > 0) break;
 
-            patrolTimer = 14 + std::sin(age * 0.23) * 6;
+            patrolTimer =
+                (14 + std::sin(age * 0.23) * 6) / w.workFrequency;
         }
 
         Surface target;
@@ -663,7 +664,13 @@ void Spider::updatePatrol(World& w, double dt) {
         patrolTimer -= dt;
         if (patrolTimer > 0) break;
 
-        bool doWork = patrolPriority || viaTether || std::sin(age * 1.7) > 0.3;
+        // 维修表演频率：阈值越低，sin 滚动过关的概率越高，巡检变维修的
+        // 机会就越多。
+        double workRoll = std::clamp(
+            0.3 - (w.workFrequency - 1.0) * 0.35, -0.6, 0.75);
+
+        bool doWork =
+            patrolPriority || viaTether || std::sin(age * 1.7) > workRoll;
 
         if (doWork) {
             task = viaTether ? WorkTask::TetherCheck : chooseTask();

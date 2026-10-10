@@ -44,6 +44,10 @@ private:
         PaletteTwo = 1031,
         PaletteThree = 1032,
 
+        WorkLow = 1040,
+        WorkNormal = 1041,
+        WorkHigh = 1042,
+
         Quit = 1099
     };
 

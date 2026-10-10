@@ -28,6 +28,7 @@ struct World {
 
     double scale = 1;
     int palette = 0;
+    double workFrequency = 1;
 };
 
 class Character {
