@@ -35,6 +35,8 @@ private:
 
         bool attached = false;
         bool releasedSeeds = false;
+        bool bridging = false;
+        double release = 0;
 
         double attachBlend = 0;
         double freeTargetLife = 0;

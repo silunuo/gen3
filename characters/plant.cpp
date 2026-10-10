@@ -171,6 +171,8 @@ void Plant::up(World& w) {
             branch.supportU = support->parameter(branch.tip);
             branch.attached = true;
             branch.attachBlend = 0;
+            branch.bridging = rootAttached && support->owner != rootSupport.owner;
+            branch.release = 0;
         } else {
             branch.freeTarget = branch.tip;
             branch.freeTargetLife = 10;
@@ -309,8 +311,36 @@ void Plant::tick(World& w, double dt) {
                     (branch.points.size() - 1) *
                     segmentLength(branch, w);
 
-                if (dist(root, attachedTarget) > reach * 0.96) {
+                double stretchRatio = dist(root, attachedTarget) / reach;
+
+                if (branch.bridging && stretchRatio <= 1.3) {
+                    // 跨窗枝桥：拉远时卷须逐步解开，而不是一下子松手；
+                    // 窗口再靠近的话，同一套缓动会把它重新卷回去。
+                    double releaseTarget = stretchRatio > 0.82 ? 1.0 : 0.0;
+
+                    branch.release += (
+                        releaseTarget - branch.release
+                    ) * follow(2, dt);
+
+                    if (branch.release > 0.97) {
+                        branch.attached = false;
+                        branch.bridging = false;
+                        branch.release = 0;
+                        branch.freeTarget = branch.tip;
+                        branch.freeTargetLife = 0.6;
+                    } else {
+                        branch.attachBlend = std::min(
+                            1.0, branch.attachBlend + dt);
+
+                        target = mix(
+                            target,
+                            attachedTarget,
+                            smooth(branch.attachBlend));
+                    }
+                } else if (stretchRatio > 0.96) {
                     branch.attached = false;
+                    branch.bridging = false;
+                    branch.release = 0;
                     branch.freeTarget = branch.tip;
                     branch.freeTargetLife = 0.6;
                 } else {
@@ -508,16 +538,25 @@ void Plant::draw(Scene& scene, const World& w) const {
             V anchor = branch.support.at(branch.supportU);
             V previous = branch.points.back();
 
+            double coil = 1 - branch.release;
+            double turns = branch.bridging ? 2.4 : 2.0;
+            double amplitude = (branch.bridging ? 10 : 8) * s * coil;
+
+            Color bridgeColor = color(
+                0xC9D9A0,
+                static_cast<float>(1 - branch.release * 0.3));
+
             for (int i = 1; i <= 28; ++i) {
                 double q = static_cast<double>(i) / 28;
-                double angle = q * TAU * 2;
+                double angle = q * TAU * turns;
 
                 V p = mix(branch.points.back(), anchor, q) +
-                    polar(angle) * (std::sin(q * PI) * 8 * s);
+                    polar(angle) * (std::sin(q * PI) * amplitude);
 
                 scene.line(
                     previous, p,
-                    color(0xACBB84), 1.1 * s);
+                    branch.bridging ? bridgeColor : color(0xACBB84),
+                    branch.bridging ? 1.4 * s : 1.1 * s);
 
                 previous = p;
             }
@@ -714,6 +753,7 @@ void Plant::seekAnchors(World& w) {
         const Surface* best = nullptr;
         V bestPoint{};
         double score = 95 * w.scale;
+        bool bestBridge = false;
 
         double reach =
             (branch.points.size() - 1) *
@@ -734,11 +774,17 @@ void Plant::seekAnchors(World& w) {
                 continue;
 
             double d = dist(branch.points.back(), p);
+            bool bridge = rootAttached && surface.owner != rootSupport.owner;
+
+            // 跨窗枝桥：两扇窗之间搭桥比单纯贴着自己这扇窗更值得做，
+            // 给跨窗候选一个分数加成，而不是单纯选最近的。
+            if (bridge) d *= 0.6;
 
             if (d < score) {
                 score = d;
                 best = &surface;
                 bestPoint = p;
+                bestBridge = bridge;
             }
         }
 
@@ -747,6 +793,8 @@ void Plant::seekAnchors(World& w) {
             branch.supportU = best->parameter(bestPoint);
             branch.attached = true;
             branch.attachBlend = 0;
+            branch.bridging = bestBridge;
+            branch.release = 0;
         }
     }
 }
