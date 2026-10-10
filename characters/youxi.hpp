@@ -104,6 +104,14 @@ private:
     V fishingAnchor{};
     double fishingTimer = 0, fishClock = 0;
 
+    bool chasingEcho = false;
+    V chaseTarget{};
+    double chaseGraceClock = 6;
+
+    bool drafting = false;
+    V draftHome{}, draftAnchor{};
+    double draftTimer = 0;
+
     double holeApproach = 0, holeFaceBias = 0;
     bool mouseInHole = false;
 

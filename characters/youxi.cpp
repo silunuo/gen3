@@ -190,6 +190,7 @@ void Youxi::tick(World& w, double dt) {
     nestWave *= std::exp(-2.1 * dt);
     releaseBloom *= std::exp(-1.8 * dt);
     throughPulse *= std::exp(-3.4 * dt);
+    chaseGraceClock -= dt;
 
     longThread.segment = 8 * s;
     shortThread.segment = 6 * s;
@@ -269,7 +270,32 @@ void Youxi::tick(World& w, double dt) {
                 velocity -= radial * outwardVelocity;
         }
     } else {
-        if (fishing) {
+        if (drafting) {
+            // 借风绕游：扰流经过后绕着扰流点转一圈，再回原位。
+            draftTimer -= dt;
+            target = draftAnchor + polar(age * 2.4) * (70 * s);
+
+            if (draftTimer <= 0) {
+                drafting = false;
+                target = draftHome;
+                targetClock = 1.2;
+            }
+        } else if (chasingEcho) {
+            // 捕捉回声：追上自己留下的一个残影点，追到就合住消失。
+            target = chaseTarget;
+
+            if (dist(center, chaseTarget) < 22 * s) {
+                compact = std::max(compact, 0.5);
+
+                std::erase_if(trail, [&](const Spark& p) {
+                    return dist(p.p, chaseTarget) < 6 * s;
+                });
+
+                chasingEcho = false;
+                chaseGraceClock = 16 + std::sin(age * 0.6) * 4;
+                targetClock = 0;
+            }
+        } else if (fishing) {
             fishingTimer -= dt;
             target = fishingAnchor + V{0, std::sin(age * 2.2) * 10 * s};
 
@@ -287,8 +313,16 @@ void Youxi::tick(World& w, double dt) {
 
             if (fishingTimer <= 0) fishing = false;
         } else if (targetClock <= 0 && !returning && !resting) {
-            chooseTarget(w);
-            targetClock = 4.5 + std::sin(age * 0.4) * 1.2;
+            if (chaseGraceClock <= 0 && trail.size() >= 2 &&
+                std::sin(age * 0.47) > 0.93)
+            {
+                chasingEcho = true;
+                chaseTarget = trail.front().p;
+                targetClock = 6;
+            } else {
+                chooseTarget(w);
+                targetClock = 4.5 + std::sin(age * 0.4) * 1.2;
+            }
         }
 
         if (resting) {
@@ -921,8 +955,20 @@ void Youxi::updateDisturbance(World& w, double dt) {
                 // 用同一个位移量区分，不另外判断"这算慢还是快"。
                 double passSpeed = len(delta) / std::max(1e-4, dt);
 
-                if (passSpeed > 220 * w.scale)
+                if (passSpeed > 220 * w.scale) {
                     contractPulse = std::min(1.0, contractPulse + 0.6);
+
+                    if (!drafting && drag == Drag::None && !fishing &&
+                        !chasingEcho && !resting && !returning &&
+                        std::sin(age * 0.53) > 0.92)
+                    {
+                        drafting = true;
+                        draftHome = center;
+                        draftAnchor =
+                            center + unit(delta, {1, 0}) * (90 * w.scale);
+                        draftTimer = 2.6;
+                    }
+                }
 
                 disturbance += limit(
                     delta * 8,
