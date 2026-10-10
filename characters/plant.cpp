@@ -328,6 +328,17 @@ void Plant::tick(World& w, double dt) {
         if (dragPart == branchIndex + 1)
             target = w.mouse + offset;
 
+        // 相邻花序互相让位：两条枝的目标靠太近时互相推开一点。
+        if (dragPart != branchIndex + 1) {
+            V otherTip = branches[1 - branchIndex].points.back();
+            double tooClose = 70 * s * spread;
+            double gap = dist(target, otherTip);
+
+            if (gap < tooClose && gap > 1e-3) {
+                target += unit(target - otherTip) * (tooClose - gap) * 0.5;
+            }
+        }
+
         spring(
             branch.tip,
             branch.tipVelocity,
@@ -398,10 +409,13 @@ void Plant::tick(World& w, double dt) {
         }
 
         branch.points.front() = root;
+
+        updateLeafRenewal(branchIndex, w, dt);
     }
 
     updateDrops(w, dt);
     updateSeeds(w, dt);
+    updateFallingLeaves(w, dt);
 }
 
 void Plant::draw(Scene& scene, const World& w) const {
@@ -439,6 +453,25 @@ void Plant::draw(Scene& scene, const World& w) const {
         for (size_t i = 2; i + 1 < branch.points.size(); i += 2) {
             Leaf leaf = leafGeometry(branchIndex, i, w);
 
+            Color thisLeafLight = leafLight;
+            Color thisLeafDark = leafDark;
+
+            if (branch.renewingLeaf == static_cast<int>(i)) {
+                float curl = static_cast<float>(
+                    std::clamp(branch.renewalAge / 2.5, 0.0, 1.0));
+
+                Color gold = color(0xCBA858);
+                Color brown = color(0x8A6A3A);
+
+                thisLeafLight.r += (gold.r - thisLeafLight.r) * curl;
+                thisLeafLight.g += (gold.g - thisLeafLight.g) * curl;
+                thisLeafLight.b += (gold.b - thisLeafLight.b) * curl;
+
+                thisLeafDark.r += (brown.r - thisLeafDark.r) * curl;
+                thisLeafDark.g += (brown.g - thisLeafDark.g) * curl;
+                thisLeafDark.b += (brown.b - thisLeafDark.b) * curl;
+            }
+
             scene.poly(
                 {
                     leaf.base,
@@ -448,8 +481,8 @@ void Plant::draw(Scene& scene, const World& w) const {
                     leaf.lower,
                     mix(leaf.base, leaf.lower, 0.72)
                 },
-                leafLight,
-                leafDark);
+                thisLeafLight,
+                thisLeafDark);
 
             scene.line(
                 leaf.base, leaf.tip,
@@ -552,6 +585,35 @@ void Plant::draw(Scene& scene, const World& w) const {
             seed.p,
             {3.5 * s, 5 * s},
             color(0xA6966C));
+
+        if (seed.caught && seed.caughtAge < 1.2) {
+            double sprout = std::clamp(seed.caughtAge / 0.5, 0.0, 1.0);
+
+            scene.poly(
+                {
+                    seed.p,
+                    seed.p + V{-5 * s, -9 * s * sprout},
+                    seed.p + V{5 * s, -9 * s * sprout}
+                },
+                color(0x9FCB7E, 0.85f));
+        }
+    }
+
+    for (const FallingLeaf& leaf : fallingLeaves) {
+        V axis = polar(leaf.rotation);
+        V side = perp(axis);
+
+        float alpha = static_cast<float>(std::clamp(leaf.life / 1.2, 0.0, 1.0));
+
+        scene.poly(
+            {
+                leaf.p - axis * (9 * s),
+                leaf.p + side * (6 * s),
+                leaf.p + axis * (9 * s),
+                leaf.p - side * (6 * s)
+            },
+            color(0xCBA858, alpha),
+            color(0x8A6A3A, alpha));
     }
 }
 
@@ -720,6 +782,13 @@ Plant::Leaf Plant::leafGeometry(
         (42 + std::sin(index * 1.3) * 5) *
         s * branch.growth;
 
+    // 叶片更新：这片叶子正在变黄卷曲，逐渐收起再脱落。
+    if (branch.renewingLeaf == static_cast<int>(index)) {
+        double curl = std::clamp(branch.renewalAge / 2.5, 0.0, 1.0);
+        opening *= 1 - curl * 0.85;
+        size *= 1 - curl * 0.3;
+    }
+
     V base = branch.points[index];
     V tip =
         base + outward * (size * opening) +
@@ -735,11 +804,8 @@ Plant::Leaf Plant::leafGeometry(
     };
 }
 
-void Plant::drawTendril(
-    Scene& scene,
-    int branchIndex,
-    size_t index,
-    const World& w) const
+V Plant::tendrilPoint(
+    int branchIndex, size_t index, double u, const World& w) const
 {
     const Branch& branch = branches[branchIndex];
 
@@ -751,17 +817,29 @@ void Plant::drawTendril(
     V outward = perp(tangent) *
         (((index / 2) & 1) ? 1.0 : -1.0);
 
-    V previous = base;
+    double a = u * PI * 3 + std::sin(age * 0.7 + index) * 0.23;
+    double radius = 10 * u * w.scale;
+
+    return base +
+        outward * (u * 28 * w.scale + std::cos(a) * radius) +
+        tangent * (std::sin(a) * radius);
+}
+
+V Plant::tendrilTip(int branchIndex, size_t index, const World& w) const {
+    return tendrilPoint(branchIndex, index, 1.0, w);
+}
+
+void Plant::drawTendril(
+    Scene& scene,
+    int branchIndex,
+    size_t index,
+    const World& w) const
+{
+    V previous = branches[branchIndex].points[index];
 
     for (int j = 1; j <= 24; ++j) {
         double u = j / 24.0;
-        double a = u * PI * 3 + std::sin(age * 0.7 + index) * 0.23;
-        double radius = 10 * u * w.scale;
-
-        V p =
-            base +
-            outward * (u * 28 * w.scale + std::cos(a) * radius) +
-            tangent * (std::sin(a) * radius);
+        V p = tendrilPoint(branchIndex, index, u, w);
 
         scene.line(
             previous, p,
@@ -798,8 +876,16 @@ void Plant::drawFlower(
             1 - dist(w.mouse, center) / (95 * s),
             0.0, 1.0);
 
+    // 托花：半开的花被悬停会开得更足；盛开的花被悬停会微微上托。
+    if (branch.phase >= 0.18 && branch.phase < 0.4)
+        opening = std::min(1.0, opening + attention * 0.18);
+
+    double lift = (branch.phase >= 0.4 && branch.phase < 0.7)
+        ? attention * 4 * s : 0.0;
+
     V flowerCenter =
-        center + unit(w.mouse - center) * (attention * 5 * s);
+        center + unit(w.mouse - center) * (attention * 5 * s) -
+        V{0, lift};
 
     Color petalLight = color(
         w.palette == 1 ? 0xF0C1A0 :
@@ -871,7 +957,14 @@ void Plant::releaseSeeds(int branchIndex, World& w) {
 }
 
 void Plant::updateSeeds(World& w, double dt) {
+    static constexpr size_t tendrilIndices[2] = {6, 10};
+
     for (Seed& seed : seeds) {
+        if (seed.caught) {
+            seed.caughtAge += dt;
+            continue;
+        }
+
         seed.life -= dt;
         seed.rotation += dt * 5.5;
 
@@ -893,11 +986,54 @@ void Plant::updateSeeds(World& w, double dt) {
         }
 
         seed.p += seed.velocity * dt;
+
+        // 拨种：卷须尝试接住飞过附近的种子。
+        for (int b = 0; b < 2 && !seed.caught; ++b) {
+            const Branch& branch = branches[b];
+
+            for (size_t idx : tendrilIndices) {
+                if (idx + 1 >= branch.points.size()) continue;
+
+                V tip = tendrilTip(b, idx, w);
+
+                if (dist(seed.p, tip) < 26 * w.scale) {
+                    seed.caught = true;
+                    seed.caughtAge = 0;
+                    seed.caughtBranch = b;
+                    seed.caughtIndex = idx;
+                    seed.velocity = {};
+
+                    w.audio.play(2, 760, 0.04);
+                    break;
+                }
+            }
+        }
+    }
+
+    for (Seed& seed : seeds) {
+        if (!seed.caught) continue;
+
+        const Branch& branch = branches[seed.caughtBranch];
+        V tip = tendrilTip(seed.caughtBranch, seed.caughtIndex, w);
+
+        if (seed.caughtAge < 1.2) {
+            // 短暂悬停在卷须尖端，冒一点子叶（画在 draw() 里）。
+            seed.p = mix(seed.p, tip, follow(14, dt));
+        } else {
+            // 被卷须拉回去，缩回卷须根部后消失。
+            V anchor = branch.points[seed.caughtIndex];
+            double t = std::min(1.0, (seed.caughtAge - 1.2) / 0.8);
+
+            seed.p = mix(tip, anchor, smooth(t));
+
+            if (t >= 1.0) seed.life = 0;
+        }
     }
 
     std::erase_if(seeds, [&](const Seed& seed) {
         return seed.life <= 0 ||
-               (seed.life < 2.5 && dist(seed.p, root) < 20 * w.scale);
+               (!seed.caught && seed.life < 2.5 &&
+                dist(seed.p, root) < 20 * w.scale);
     });
 }
 
@@ -1009,6 +1145,65 @@ void Plant::updateDrops(World& w, double dt) {
             return drop.life <= 0;
         });
     }
+}
+
+void Plant::updateLeafRenewal(int branchIndex, World& w, double dt) {
+    Branch& branch = branches[branchIndex];
+
+    branch.renewalClock -= dt;
+
+    if (branch.renewalClock <= 0 && branch.renewingLeaf < 0 &&
+        branch.points.size() > 6)
+    {
+        branch.renewalClock = 12 + std::sin(age * 0.31 + branchIndex) * 6;
+
+        size_t span = std::max<size_t>(1, (branch.points.size() - 4) / 2);
+        size_t index = 2 + (static_cast<size_t>(age * 0.53) % span) * 2;
+
+        if (index + 1 >= branch.points.size())
+            index -= 2;
+
+        branch.renewingLeaf = static_cast<int>(index);
+        branch.renewalAge = 0;
+    }
+
+    if (branch.renewingLeaf >= 0) {
+        branch.renewalAge += dt;
+
+        if (branch.renewalAge > 2.5) {
+            size_t index = static_cast<size_t>(branch.renewingLeaf);
+
+            if (index + 1 < branch.points.size()) {
+                Leaf leaf = leafGeometry(branchIndex, index, w);
+
+                fallingLeaves.push_back({
+                    leaf.tip,
+                    V{std::sin(age) * 18 * w.scale, 12 * w.scale},
+                    0,
+                    3.5
+                });
+            }
+
+            branch.renewingLeaf = -1;
+        }
+    }
+}
+
+void Plant::updateFallingLeaves(World& w, double dt) {
+    for (FallingLeaf& leaf : fallingLeaves) {
+        leaf.life -= dt;
+        leaf.rotation += dt * 2.4;
+
+        leaf.velocity.x += std::sin(age * 1.7 + leaf.rotation) * 14 * w.scale * dt;
+        leaf.velocity.y += 24 * w.scale * dt;
+        leaf.velocity *= std::exp(-0.6 * dt);
+
+        leaf.p += leaf.velocity * dt;
+    }
+
+    std::erase_if(fallingLeaves, [](const FallingLeaf& leaf) {
+        return leaf.life <= 0;
+    });
 }
 
 } // namespace pets

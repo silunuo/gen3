@@ -43,10 +43,20 @@ private:
 
         double touch = 0;
         double touchPosition = 0;
+
+        int renewingLeaf = -1;
+        double renewalAge = 0;
+        double renewalClock = 14;
     };
 
     struct Leaf {
         V base{}, tip{}, upper{}, lower{};
+    };
+
+    struct FallingLeaf {
+        V p{}, velocity{};
+        double rotation = 0;
+        double life = 3;
     };
 
     struct Drop {
@@ -62,6 +72,11 @@ private:
         V p{}, velocity{};
         double rotation = 0;
         double life = 8;
+
+        bool caught = false;
+        double caughtAge = 0;
+        int caughtBranch = 0;
+        size_t caughtIndex = 0;
     };
 
     V root{}, offset{};
@@ -74,6 +89,7 @@ private:
     std::array<Branch, 2> branches;
     std::vector<Drop> drops;
     std::vector<Seed> seeds;
+    std::vector<FallingLeaf> fallingLeaves;
 
     int dragPart = -1;
     std::ptrdiff_t dragDrop = -1;
@@ -94,6 +110,10 @@ private:
 
     Leaf leafGeometry(int branchIndex, size_t index, const World& w) const;
 
+    V tendrilPoint(
+        int branchIndex, size_t index, double u, const World& w) const;
+    V tendrilTip(int branchIndex, size_t index, const World& w) const;
+
     void drawTendril(
         Scene& scene, int branchIndex, size_t index, const World& w) const;
 
@@ -104,6 +124,8 @@ private:
     void releaseSeeds(int branchIndex, World& w);
     void updateSeeds(World& w, double dt);
     void updateDrops(World& w, double dt);
+    void updateLeafRenewal(int branchIndex, World& w, double dt);
+    void updateFallingLeaves(World& w, double dt);
 };
 
 } // namespace pets
