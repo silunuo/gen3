@@ -533,6 +533,14 @@ void Youxi::tick(World& w, double dt) {
 
     nodeTargets[0] += attention * (mouseNear * 14 * s);
 
+    // 引导节点：先探向身体正要去的方向，不止是盯着鼠标。
+    nodeTargets[0] += unit(velocity, facing) *
+        (std::clamp(speed / (300 * s), 0.0, 1.0) * 20 * s);
+
+    // 平衡节点：转弯时向外侧展开，而不是固定半径匀速公转。
+    nodeTargets[1] += perp(facing) *
+        (-std::clamp(turnRate / 3.0, -1.0, 1.0) * 24 * s);
+
     if (fold > 0) {
         for (V& p : nodeTargets)
             p = mix(p, center + (p - center) * 0.4, fold);
@@ -565,10 +573,14 @@ void Youxi::tick(World& w, double dt) {
         };
     }
 
+    // 引导节点反应最快，平衡节点居中，织构节点更从容、不抢先。
+    static constexpr double nodeStiffness[3] = {70, 48, 36};
+    static constexpr double nodeDamping[3] = {10, 12, 14};
+
     for (int i = 0; i < 3; ++i) {
         spring(
             nodes[i], nodeVelocity[i], nodeTargets[i],
-            42 + i * 12, 12, dt);
+            nodeStiffness[i], nodeDamping[i], dt);
     }
 
     double pulse = std::sin(age * 3.3);
