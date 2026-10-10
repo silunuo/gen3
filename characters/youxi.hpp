@@ -104,10 +104,23 @@ private:
     V fishingAnchor{};
     double fishingTimer = 0, fishClock = 0;
 
+    double holeApproach = 0, holeFaceBias = 0;
+    bool mouseInHole = false;
+
+    double threadPulse = 0;
+    std::array<double, 3> nodeThreadDelay{-1, -1, -1};
+    int threadCount = 0;
+    double threadWindowClock = 0;
+    bool inviting = false;
+    double inviteClock = 0;
+
+    std::vector<Spark> motes;
+
     static double membraneAngle(int index);
 
     void chooseTarget(World& w);
     void triggerBloom(World& w, double strength = 1.0);
+    void triggerThread(World& w);
     void updateDisturbance(World& w, double dt);
     void updateEchoes(World& w, double dt);
     void drawNest(Scene& scene, const World& w) const;

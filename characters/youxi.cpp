@@ -311,6 +311,16 @@ void Youxi::tick(World& w, double dt) {
                     resting = true;
                     returning = false;
                     sleepAge = 0;
+
+                    for (int i = 0; i < 4; ++i) {
+                        double a = static_cast<double>(i) / 4 * TAU + age;
+
+                        motes.push_back({
+                            nest + polar(a) * (12 * s),
+                            polar(a) * (24 * s),
+                            0.5
+                        });
+                    }
                 }
             }
         }
@@ -394,6 +404,81 @@ void Youxi::tick(World& w, double dt) {
 
     stretch = std::min(0.62, stretch + shuttleBoost * 0.3);
 
+    // 穿环：鼠标靠近中心时，身体缺口慢慢转去对准鼠标；离开后松开。
+    {
+        V toHole = w.mouse - center;
+        double holeDist = len(toHole);
+
+        double approachTarget = (drag == Drag::None)
+            ? std::clamp(1.0 - holeDist / (170 * s), 0.0, 1.0) : 0.0;
+
+        holeApproach += (approachTarget - holeApproach) * follow(5, dt);
+
+        double desiredBias = holeApproach > 0.05
+            ? wrapAngle(std::atan2(toHole.y, toHole.x) - rotation) *
+                holeApproach
+            : 0.0;
+
+        holeFaceBias += wrapAngle(desiredBias - holeFaceBias) * follow(4, dt);
+        rotation += holeFaceBias;
+
+        if (inviting)
+            rotation += std::sin(age * 1.6) * 0.35;
+
+        V local = rotate(w.mouse - center, -rotation);
+        double rx = 0.65 * 77 * s, ry = 0.65 * 59 * s;
+
+        bool inHoleNow =
+            (local.x * local.x) / (rx * rx) +
+            (local.y * local.y) / (ry * ry) < 1.0;
+
+        if (!inHoleNow && mouseInHole) triggerThread(w);
+        mouseInHole = inHoleNow;
+    }
+
+    threadWindowClock -= dt;
+    if (threadWindowClock <= 0) threadCount = 0;
+
+    threadPulse *= std::exp(-2.2 * dt);
+
+    for (int i = 0; i < 3; ++i) {
+        if (nodeThreadDelay[i] < 0) continue;
+
+        nodeThreadDelay[i] -= dt;
+
+        if (nodeThreadDelay[i] <= 0) {
+            nodeVelocity[i] += unit(nodes[i] - center, {0, -1}) * (140 * s);
+            nodeThreadDelay[i] = -1;
+        }
+    }
+
+    if (inviting) {
+        inviteClock -= dt;
+        targetClock = 1;
+        target = center;
+
+        if (inviteClock <= 0) {
+            inviting = false;
+            threadCount = 0;
+            targetClock = 0;
+        }
+    } else if (
+        threadCount >= 3 && drag == Drag::None &&
+        !resting && !returning && !fishing &&
+        std::sin(age * 0.31) > 0.94)
+    {
+        inviting = true;
+        inviteClock = 2.5;
+    }
+
+    for (Spark& m : motes) {
+        m.life -= dt;
+        m.velocity *= std::exp(-3 * dt);
+        m.p += m.velocity * dt;
+    }
+
+    std::erase_if(motes, [](const Spark& m) { return m.life <= 0; });
+
     V attention = unit(w.mouse - center);
     double mouseNear =
         std::clamp(1.0 - dist(w.mouse, center) / (230 * s), 0.0, 1.0);
@@ -456,7 +541,8 @@ void Youxi::tick(World& w, double dt) {
     double opening =
         1 + throughPulse * 0.18 + releaseBloom * 0.4 +
         diffusePulse * 0.16 - convergePulse * 0.16 -
-        contractPulse * 0.22 + sailBoost * 0.38 - compact * 0.45;
+        contractPulse * 0.22 + sailBoost * 0.38 - compact * 0.45 +
+        threadPulse * 0.5;
 
     std::array<V, membraneCount> goals{};
     std::array<V, membraneCount> forces{};
@@ -656,6 +742,11 @@ void Youxi::draw(Scene& scene, const World& w) const {
             2.2 * s);
     }
 
+    for (const Spark& m : motes) {
+        float alpha = static_cast<float>(std::clamp(m.life / 0.6, 0.0, 1.0));
+        scene.disk(m.p, 2.2 * s * alpha, color(0xE8F2E4, alpha * 0.85f));
+    }
+
     for (int i = 0; i + 1 < membraneCount; ++i) {
         double u = static_cast<double>(i) / (membraneCount - 1);
         double innerScale = 0.65 + std::sin(u * PI) * 0.09;
@@ -734,6 +825,38 @@ void Youxi::triggerBloom(World& w, double strength) {
         membraneVelocity[i] +=
             unit(membrane[i] - center, {1, 0}) * (180 * w.scale * strength);
     }
+}
+
+void Youxi::triggerThread(World& w) {
+    double s = w.scale;
+
+    threadPulse = 1;
+    threadCount++;
+    threadWindowClock = 10;
+
+    nodeThreadDelay = {0.0, 0.12, 0.24};
+
+    // 主膜翻展：冲量从缺口一侧最强，向对侧线性衰减，靠膜点间已有的
+    // 弹簧耦合自然传开，看起来像一个从缺口开始的翻展波。
+    for (int i = 0; i < membraneCount; ++i) {
+        double a = membraneAngle(i);
+        double u = (a - 0.48) / (TAU - 0.96);
+
+        membraneVelocity[i] +=
+            unit(membrane[i] - center, {1, 0}) * (220 * s * (1 - u));
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        double a = static_cast<double>(i) / 5 * TAU + age;
+
+        motes.push_back({
+            center + polar(a) * (20 * s),
+            polar(a) * (60 * s),
+            0.6
+        });
+    }
+
+    w.audio.play(1, 540, 0.07);
 }
 
 void Youxi::chooseTarget(World& w) {
