@@ -51,6 +51,17 @@ cmake --build build
 
 Right-click the character to switch characters, resize, change the color palette, and more.
 
+### 📁 Offline / portable
+
+No network access, no registry writes, nothing dropped into your C: drive's AppData. All settings and save data live in a single `state.ini` next to `DesktopPetsGen3.exe`:
+
+```
+DesktopPetsGen3.exe
+state.ini          ← auto-created on first run; positions/palette/save state live here
+```
+
+To move or back it up, just copy both files together; deleting `state.ini` resets everything.
+
 ### 🧠 Resource usage
 
 Idles around 30–60MB of resident memory depending on which character is active and what's currently on screen (trails, seeds, particles bump it up briefly); CPU usage stays low, so it's fine to leave running in the background.
