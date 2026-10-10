@@ -409,7 +409,9 @@ void Youxi::tick(World& w, double dt) {
 
     double pulse = std::sin(age * 3.3);
     double opening =
-        1 + throughPulse * 0.18 + releaseBloom * 0.17;
+        1 + throughPulse * 0.18 + releaseBloom * 0.17 +
+        diffusePulse * 0.16 - convergePulse * 0.16 -
+        contractPulse * 0.22;
 
     std::array<V, membraneCount> goals{};
     std::array<V, membraneCount> forces{};
@@ -719,6 +721,9 @@ void Youxi::chooseTarget(World& w) {
 
 void Youxi::updateDisturbance(World& w, double dt) {
     disturbance *= std::exp(-4 * dt);
+    contractPulse *= std::exp(-5 * dt);
+    diffusePulse *= std::exp(-3.6 * dt);
+    convergePulse *= std::exp(-3.6 * dt);
 
     if (observing) {
         if (const Surface* next =
@@ -729,6 +734,13 @@ void Youxi::updateDisturbance(World& w, double dt) {
             if (len(delta) > 0.1 &&
                 segmentDistance(center, next->a, next->b) < 260 * w.scale)
             {
+                // 借流：慢经过只是轻微偏移/侧滑；快经过先收缩一下再滑开，
+                // 用同一个位移量区分，不另外判断"这算慢还是快"。
+                double passSpeed = len(delta) / std::max(1e-4, dt);
+
+                if (passSpeed > 220 * w.scale)
+                    contractPulse = std::min(1.0, contractPulse + 0.6);
+
                 disturbance += limit(
                     delta * 8,
                     200 * w.scale);
@@ -748,6 +760,13 @@ void Youxi::updateDisturbance(World& w, double dt) {
             observing = true;
         }
     }
+
+    // 开关窗口：附近新出现一扇窗就局部扩散一下，消失则局部收束一下。
+    if (w.desktop.recentWindowOpened(center, 320 * w.scale, 1.0))
+        diffusePulse = std::min(1.0, diffusePulse + 0.5);
+
+    if (w.desktop.recentWindowClosed(center, 320 * w.scale, 1.0))
+        convergePulse = std::min(1.0, convergePulse + 0.5);
 }
 
 void Youxi::updateEchoes(World& w, double dt) {

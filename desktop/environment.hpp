@@ -80,11 +80,26 @@ public:
     // "值得去巡检一下"的目标。
     bool recentlyMoved(HWND owner, double withinSeconds) const;
 
+    // 附近最近是否有窗口新出现/消失——角色用来做局部扩散/收束反应。
+    bool recentWindowOpened(V point, double radius, double withinSeconds) const;
+    bool recentWindowClosed(V point, double radius, double withinSeconds) const;
+
 private:
+    struct WindowEvent { V position{}; ULONGLONG tick = 0; };
+
     std::vector<RECT> blockers;
 
     std::unordered_map<HWND, RECT> previousRects;
     std::unordered_map<HWND, ULONGLONG> lastMovedTick;
+
+    std::vector<HWND> frameWindows;
+    std::vector<HWND> previousFrameWindows;
+    std::vector<WindowEvent> opens;
+    std::vector<WindowEvent> closes;
+
+    static bool recentEvent(
+        const std::vector<WindowEvent>& events,
+        V point, double radius, double withinSeconds);
 
     void emitVisible(
         HWND owner, int edge,

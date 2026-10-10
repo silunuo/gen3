@@ -79,6 +79,10 @@ private:
     double releaseBloom = 0;
     double throughPulse = 0;
 
+    double contractPulse = 0;
+    double diffusePulse = 0;
+    double convergePulse = 0;
+
     double echoClock = 7;
     double trailClock = 0;
 

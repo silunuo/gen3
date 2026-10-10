@@ -24,6 +24,7 @@ void Desktop::refresh(HWND own) {
     workAreas.clear();
     surfaces.clear();
     blockers.clear();
+    frameWindows.clear();
 
     EnumDisplayMonitors(
         nullptr, nullptr,
@@ -64,6 +65,58 @@ void Desktop::refresh(HWND own) {
             true
         });
     }
+
+    ULONGLONG now = GetTickCount64();
+
+    for (HWND hwnd : frameWindows) {
+        bool existedBefore = std::find(
+            previousFrameWindows.begin(), previousFrameWindows.end(),
+            hwnd) != previousFrameWindows.end();
+
+        if (!existedBefore) {
+            auto it = previousRects.find(hwnd);
+
+            if (it != previousRects.end()) {
+                const RECT& r = it->second;
+
+                opens.push_back({
+                    {(r.left + r.right) * 0.5, (r.top + r.bottom) * 0.5},
+                    now
+                });
+            }
+        }
+    }
+
+    for (HWND hwnd : previousFrameWindows) {
+        bool stillHere = std::find(
+            frameWindows.begin(), frameWindows.end(),
+            hwnd) != frameWindows.end();
+
+        if (!stillHere) {
+            auto it = previousRects.find(hwnd);
+
+            if (it != previousRects.end()) {
+                const RECT& r = it->second;
+
+                closes.push_back({
+                    {(r.left + r.right) * 0.5, (r.top + r.bottom) * 0.5},
+                    now
+                });
+            }
+        }
+    }
+
+    previousFrameWindows = frameWindows;
+
+    constexpr ULONGLONG eventLifetime = 6000;
+
+    std::erase_if(opens, [&](const WindowEvent& e) {
+        return now - e.tick > eventLifetime;
+    });
+
+    std::erase_if(closes, [&](const WindowEvent& e) {
+        return now - e.tick > eventLifetime;
+    });
 }
 
 const Surface* Desktop::resolve(const Surface& old) const {
@@ -135,6 +188,35 @@ bool Desktop::recentlyMoved(HWND owner, double withinSeconds) const {
 
     ULONGLONG elapsed = GetTickCount64() - it->second;
     return static_cast<double>(elapsed) < withinSeconds * 1000.0;
+}
+
+bool Desktop::recentEvent(
+    const std::vector<WindowEvent>& events,
+    V point, double radius, double withinSeconds)
+{
+    ULONGLONG now = GetTickCount64();
+
+    for (const WindowEvent& e : events) {
+        double elapsed = static_cast<double>(now - e.tick);
+
+        if (elapsed < withinSeconds * 1000.0 &&
+            dist(point, e.position) < radius)
+            return true;
+    }
+
+    return false;
+}
+
+bool Desktop::recentWindowOpened(
+    V point, double radius, double withinSeconds) const
+{
+    return recentEvent(opens, point, radius, withinSeconds);
+}
+
+bool Desktop::recentWindowClosed(
+    V point, double radius, double withinSeconds) const
+{
+    return recentEvent(closes, point, radius, withinSeconds);
 }
 
 void Desktop::emitVisible(
@@ -247,6 +329,8 @@ void Desktop::addWindow(HWND hwnd) {
         r.bottom - r.top >= 100;
 
     if (usable) {
+        frameWindows.push_back(hwnd);
+
         emitVisible(
             hwnd, 0,
             {static_cast<double>(r.left), static_cast<double>(r.top)},
