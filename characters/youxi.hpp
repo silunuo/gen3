@@ -35,6 +35,10 @@ private:
         Nest
     };
 
+    enum class Posture {
+        OpenRing, FoldedShuttle, Crescent, Sail, Pouch, ClosedPetal, Bloom
+    };
+
     struct Echo {
         V p{}, velocity{};
         double radius = 25;
@@ -83,6 +87,11 @@ private:
     double diffusePulse = 0;
     double convergePulse = 0;
 
+    Posture posture = Posture::OpenRing;
+    double previousFacingAngle = 0;
+    double turnRate = 0, crescentBias = 0;
+    double compact = 0, sailBoost = 0, shuttleBoost = 0;
+
     double echoClock = 7;
     double trailClock = 0;
 
@@ -98,6 +107,7 @@ private:
     static double membraneAngle(int index);
 
     void chooseTarget(World& w);
+    void triggerBloom(World& w, double strength = 1.0);
     void updateDisturbance(World& w, double dt);
     void updateEchoes(World& w, double dt);
     void drawNest(Scene& scene, const World& w) const;

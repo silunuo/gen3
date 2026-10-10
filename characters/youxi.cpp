@@ -121,7 +121,7 @@ void Youxi::up(World& w) {
     }
 
     if (drag == Drag::Body) {
-        releaseBloom = 1;
+        triggerBloom(w);
         velocity = limit(velocity, 650 * w.scale);
         target = center + velocity * 0.45;
         targetClock = 1.5;
@@ -130,7 +130,7 @@ void Youxi::up(World& w) {
     }
 
     if (drag == Drag::Thread) {
-        releaseBloom = 1;
+        triggerBloom(w);
         target = center + velocity * 0.5;
         targetClock = 2;
 
@@ -138,7 +138,7 @@ void Youxi::up(World& w) {
     }
 
     if (drag == Drag::ShortThread) {
-        releaseBloom = 0.6;
+        triggerBloom(w, 0.6);
         target = center + velocity * 0.3;
         targetClock = 1.2;
 
@@ -188,7 +188,7 @@ void Youxi::tick(World& w, double dt) {
     double s = w.scale;
 
     nestWave *= std::exp(-2.1 * dt);
-    releaseBloom *= std::exp(-2.5 * dt);
+    releaseBloom *= std::exp(-1.8 * dt);
     throughPulse *= std::exp(-3.4 * dt);
 
     longThread.segment = 8 * s;
@@ -343,7 +343,7 @@ void Youxi::tick(World& w, double dt) {
     }
 
     fold += (
-        (resting ? 1.0 : 0.0) - fold
+        ((resting || returning) ? 1.0 : 0.0) - fold
     ) * follow(2.4, dt);
 
     double speed = len(velocity);
@@ -354,6 +354,45 @@ void Youxi::tick(World& w, double dt) {
 
     double rotation = std::atan2(facing.y, facing.x) * 0.22;
     double stretch = std::clamp(speed / (450 * s), 0.0, 0.32);
+
+    // 七种命名体态：按优先级每帧重新判一次，几何效果靠下面这些
+    // 缓动量追赶目标值，过渡天然平滑，不需要额外的转场状态机。
+    {
+        double facingAngle = std::atan2(facing.y, facing.x);
+        double instantTurnRate =
+            wrapAngle(facingAngle - previousFacingAngle) / std::max(1e-4, dt);
+
+        turnRate += (instantTurnRate - turnRate) * follow(6, dt);
+        previousFacingAngle = facingAngle;
+
+        if (drag == Drag::Body) posture = Posture::ClosedPetal;
+        else if (releaseBloom > 0.25) posture = Posture::Bloom;
+        else if (resting || returning) posture = Posture::Pouch;
+        else if (drag == Drag::Thread || drag == Drag::ShortThread ||
+                 len(disturbance) > 40 * s) posture = Posture::Sail;
+        else if (std::abs(turnRate) > 1.8) posture = Posture::Crescent;
+        else if (speed > 220 * s) posture = Posture::FoldedShuttle;
+        else posture = Posture::OpenRing;
+
+        compact += (
+            (posture == Posture::ClosedPetal ? 1.0 : 0.0) - compact
+        ) * follow(10, dt);
+
+        sailBoost += (
+            (posture == Posture::Sail ? 1.0 : 0.0) - sailBoost
+        ) * follow(7, dt);
+
+        shuttleBoost += (
+            (posture == Posture::FoldedShuttle ? 1.0 : 0.0) - shuttleBoost
+        ) * follow(8, dt);
+
+        double crescentTarget = posture == Posture::Crescent
+            ? std::clamp(turnRate / 3.0, -1.0, 1.0) : 0.0;
+
+        crescentBias += (crescentTarget - crescentBias) * follow(8, dt);
+    }
+
+    stretch = std::min(0.62, stretch + shuttleBoost * 0.3);
 
     V attention = unit(w.mouse - center);
     double mouseNear =
@@ -378,6 +417,12 @@ void Youxi::tick(World& w, double dt) {
     if (fold > 0) {
         for (V& p : nodeTargets)
             p = mix(p, center + (p - center) * 0.4, fold);
+    }
+
+    if (compact > 0) {
+        // 闭瓣：受扰/被抓时节点往身体中心贴。
+        for (V& p : nodeTargets)
+            p = mix(p, center + (p - center) * 0.3, compact);
     }
 
     if (weave < 1 && returning) {
@@ -409,9 +454,9 @@ void Youxi::tick(World& w, double dt) {
 
     double pulse = std::sin(age * 3.3);
     double opening =
-        1 + throughPulse * 0.18 + releaseBloom * 0.17 +
+        1 + throughPulse * 0.18 + releaseBloom * 0.4 +
         diffusePulse * 0.16 - convergePulse * 0.16 -
-        contractPulse * 0.22;
+        contractPulse * 0.22 + sailBoost * 0.38 - compact * 0.45;
 
     std::array<V, membraneCount> goals{};
     std::array<V, membraneCount> forces{};
@@ -427,6 +472,11 @@ void Youxi::tick(World& w, double dt) {
             std::sin(a) * (58 - pulse * 4) *
                 asymmetry * (1 - stretch * 0.35)
         };
+
+        // 弯月：转弯时一侧明显展开、一侧明显收紧。
+        double crescent =
+            1 + (std::sin(a) >= 0 ? 1.0 : -1.0) * crescentBias * 0.4;
+        local.y *= crescent;
 
         local.x *= 1 - fold * 0.48;
         local.y *= 1 - fold * 0.34;
@@ -674,6 +724,16 @@ double Youxi::membraneAngle(int index) {
         (TAU - 0.96) *
         static_cast<double>(index) /
         (membraneCount - 1);
+}
+
+void Youxi::triggerBloom(World& w, double strength) {
+    releaseBloom = strength;
+
+    // 翻花：由内向外炸开一下，而不是只靠 opening 慢慢撑大。
+    for (int i = 0; i < membraneCount; ++i) {
+        membraneVelocity[i] +=
+            unit(membrane[i] - center, {1, 0}) * (180 * w.scale * strength);
+    }
 }
 
 void Youxi::chooseTarget(World& w) {
