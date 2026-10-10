@@ -6,6 +6,12 @@
 ![language](https://img.shields.io/badge/language-C%2B%2B20-00599C)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+<p align="center">
+  <img src="monika.png" width="180" alt="项目吉祥物斜眼看你">
+  <br>
+  <sub>这是项目吉祥物，正斜眼看着你有没有认真读文档。</sub>
+</p>
+
 EN：[English](README.en.md)
 
 ---

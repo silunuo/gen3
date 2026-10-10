@@ -6,6 +6,12 @@
 ![language](https://img.shields.io/badge/language-C%2B%2B20-00599C)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+<p align="center">
+  <img src="monika.png" width="180" alt="the project mascot giving you a side-eye">
+  <br>
+  <sub>The project mascot, side-eyeing you to check if you actually read the docs.</sub>
+</p>
+
 中文：[中文](README.md)
 
 ---
