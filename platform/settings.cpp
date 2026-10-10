@@ -14,27 +14,23 @@
 #endif
 
 #include <windows.h>
-#include <shlobj.h>
-
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "ole32.lib")
 
 namespace pets {
 
 Settings::Settings() {
-    PWSTR directory = nullptr;
+    // 便携模式：存档和 exe 放在同一目录，不写用户的 C 盘 AppData，
+    // 这样整个程序文件夹可以直接拷贝搬家。
+    wchar_t buffer[MAX_PATH]{};
 
-    if (SUCCEEDED(SHGetKnownFolderPath(
-            FOLDERID_LocalAppData, 0, nullptr, &directory)))
-    {
-        path = directory;
-        CoTaskMemFree(directory);
+    if (GetModuleFileNameW(nullptr, buffer, MAX_PATH) > 0) {
+        path = buffer;
+
+        size_t slash = path.find_last_of(L"\\/");
+        path = (slash == std::wstring::npos) ? L"." : path.substr(0, slash);
     } else {
         path = L".";
     }
 
-    path += L"\\DesktopPets";
-    CreateDirectoryW(path.c_str(), nullptr);
     path += L"\\state.ini";
 }
 
