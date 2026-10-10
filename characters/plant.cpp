@@ -114,6 +114,28 @@ bool Plant::down(V p, World& w) {
     for (int i = 0; i < 2; ++i) {
         Branch& branch = branches[i];
 
+        if (!branch.attached) continue;
+
+        // 解须：抓住卷须本体（不是枝梢）才能沿退绕方向把它拖开。
+        V tip = branch.points.back();
+        V anchor = branch.support.at(branch.supportU);
+        V ab = anchor - tip;
+        double abLenSq = dot(ab, ab);
+
+        if (abLenSq < 1e-6) continue;
+
+        double t = std::clamp(dot(p - tip, ab) / abLenSq, 0.0, 1.0);
+        V closest = tip + ab * t;
+
+        if (t > 0.25 && dist(p, closest) < 14 * s) {
+            dragPart = i + 4;
+            return true;
+        }
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        Branch& branch = branches[i];
+
         if (dist(p, branch.points.back()) < 32 * s) {
             if (branch.phase > 0.77) {
                 releaseSeeds(i, w);
@@ -329,8 +351,31 @@ void Plant::tick(World& w, double dt) {
                     segmentLength(branch, w);
 
                 double stretchRatio = dist(root, attachedTarget) / reach;
+                bool manualUnwind = dragPart == branchIndex + 4;
 
-                if (branch.bridging && stretchRatio <= 1.3) {
+                if (manualUnwind) {
+                    // 解须：卷须解开的程度直接由拖离支撑的距离决定。
+                    branch.release = std::clamp(
+                        dist(w.mouse, attachedTarget) / (120 * s),
+                        0.0, 1.0);
+
+                    if (branch.release > 0.97) {
+                        branch.attached = false;
+                        branch.bridging = false;
+                        branch.release = 0;
+                        branch.freeTarget = branch.tip;
+                        branch.freeTargetLife = 0.6;
+                        dragPart = -1;
+                    } else {
+                        branch.attachBlend = std::min(
+                            1.0, branch.attachBlend + dt);
+
+                        target = mix(
+                            target,
+                            attachedTarget,
+                            smooth(branch.attachBlend));
+                    }
+                } else if (branch.bridging && stretchRatio <= 1.3) {
                     // 跨窗枝桥：拉远时卷须逐步解开，而不是一下子松手；
                     // 窗口再靠近的话，同一套缓动会把它重新卷回去。
                     double releaseTarget = stretchRatio > 0.82 ? 1.0 : 0.0;
@@ -361,6 +406,9 @@ void Plant::tick(World& w, double dt) {
                     branch.freeTarget = branch.tip;
                     branch.freeTargetLife = 0.6;
                 } else {
+                    // 没人拽的话，没解开完的卷须自己慢慢卷回去。
+                    branch.release *= std::exp(-3 * dt);
+
                     branch.attachBlend = std::min(
                         1.0, branch.attachBlend + dt);
 
