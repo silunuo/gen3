@@ -719,6 +719,10 @@ void Youxi::tick(World& w, double dt) {
     {
         returning = true;
     }
+
+    // draw() 是 const，拿不到这些局部量，缓存下来给渲染用。
+    renderStretch = stretch;
+    renderMouseNear = mouseNear;
 }
 
 void Youxi::draw(Scene& scene, const World& w) const {
@@ -743,6 +747,19 @@ void Youxi::draw(Scene& scene, const World& w) const {
         w.palette == 1 ? 0x53549C :
         w.palette == 2 ? 0xAD7652 : 0x468796,
         0.66f);
+
+    // 虹彩边缘：拉伸越大，边缘越往另一个色相偏。
+    Color stretchedRim = color(
+        w.palette == 1 ? 0xE2A7D9 :
+        w.palette == 2 ? 0xF7E2A0 : 0xD7F0E4,
+        0.92f);
+
+    float rimShift = static_cast<float>(
+        std::clamp(renderStretch / 0.62, 0.0, 1.0));
+
+    rim.r += (stretchedRim.r - rim.r) * rimShift;
+    rim.g += (stretchedRim.g - rim.g) * rimShift;
+    rim.b += (stretchedRim.b - rim.b) * rimShift;
 
     for (const Spark& p : trail) {
         float alpha = static_cast<float>(p.life * 0.13);
@@ -796,6 +813,16 @@ void Youxi::draw(Scene& scene, const World& w) const {
             top,
             inner);
 
+        // 分层半透明：内缘再叠一条更窄更暗的带，制造厚度感。
+        double deepScale = innerScale * 0.82;
+        V da = center + (membrane[i] - center) * deepScale;
+        V db = center + (membrane[i + 1] - center) * deepScale;
+
+        scene.poly(
+            {a, b, db, da},
+            color(0x25303B, 0.16f),
+            color(0x25303B, 0.04f));
+
         scene.line(
             membrane[i], membrane[i + 1],
             rim, 1.4 * s);
@@ -812,9 +839,19 @@ void Youxi::draw(Scene& scene, const World& w) const {
     scene.chain(longThread.p, color(0xB1D5C9, 0.88f), 1.8 * s);
     scene.chain(shortThread.p, color(0x85B4C0, 0.78f), 1.2 * s);
 
-    scene.ellipse(
-        nodes[0], {10 * s, 5 * s},
-        color(0xF1DEA7), color(0xA2B3A3));
+    {
+        // 节点光泽：引导节点靠近鼠标时更亮。
+        Color guideFill = color(0xF1DEA7);
+        float gloss = static_cast<float>(renderMouseNear * 0.6);
+
+        guideFill.r += (1.0f - guideFill.r) * gloss;
+        guideFill.g += (1.0f - guideFill.g) * gloss;
+        guideFill.b += (1.0f - guideFill.b) * gloss;
+
+        scene.ellipse(
+            nodes[0], {10 * s, 5 * s},
+            guideFill, color(0xA2B3A3));
+    }
 
     scene.ellipse(
         nodes[1], {9 * s, 8 * s},

@@ -104,6 +104,8 @@ private:
     V fishingAnchor{};
     double fishingTimer = 0, fishClock = 0;
 
+    double renderStretch = 0, renderMouseNear = 0;
+
     bool chasingEcho = false;
     V chaseTarget{};
     double chaseGraceClock = 6;
